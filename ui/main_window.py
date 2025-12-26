@@ -31,12 +31,20 @@ class AppWindow:
         os.makedirs(self.STATE_DIR, exist_ok=True)
         self.STATE_FILE = os.path.join(self.STATE_DIR, "download_state.json")
 
+        # ===== Ao iniciar a aplicação =====
         if os.path.exists(self.STATE_FILE):
-                if messagebox.askyesno(
-                        "Download pausado encontrado",
-                        "Existe um download pausado.\nDeseja retomar?"
-                ):
-                    self._resume_from_state(self.STATE_FILE)
+            # Se existe download pausado
+            resume = messagebox.askyesno(
+                "Download pausado encontrado",
+                "Existe um download pausado.\nDeseja retomar?"
+            )
+
+            if resume:
+                # Marca que o app está retomando de um crash
+                self._resume_from_state(self.STATE_FILE)
+            else:
+                # Usuário escolheu não retomar → limpeza
+                self._on_no_resume()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
 
@@ -360,3 +368,15 @@ class AppWindow:
                 pass
 
         self.root.destroy()
+
+    # ===== Novo método para lidar com 'não retomar' =====
+    def _on_no_resume(self):
+        """Ação quando o usuário decide não retomar o download pausado."""
+        # Limpa o arquivo de estado antigo
+        try:
+            os.remove(self.STATE_FILE)
+        except FileNotFoundError:
+            pass
+
+        # Opcional: log
+        self._log("Download pausado descartado pelo usuário.")
