@@ -4,6 +4,7 @@ import os
 import yt_dlp
 import re
 import shutil
+import threading
 
 from tkinter import messagebox
 
@@ -88,7 +89,12 @@ class Downloader:
         self.blocked_files = set()
         self.cancelled_titles = set()
 
+        self.paused = False
+
         self.log_hook = log_hook
+
+        self.pause_event = threading.Event()
+        self.pause_event.set()  # começa desbloqueado
 
     def start(self):
         try:
@@ -139,20 +145,20 @@ class Downloader:
                 self.error_hook(str(e))
 
         finally:
-            self._cleanup_files()
+            if not self.paused:
+                self._cleanup_files()
 
-            if self.cancel_requested and self.normalize_enabled:
-                if self.keep_after_cancel:
-                    self._move_playlist_from_tmp()
+                if self.cancel_requested and self.normalize_enabled:
+                    if self.keep_after_cancel:
+                        self._move_playlist_from_tmp()
 
+                self.blocked_files.clear()
+
+                # if self.cancel_requested:
+                #     self._cleanup_cancelled_titles()
+
+                self._cleanup_files()
                 self._cleanup_tmp_normalize()
-
-            self.blocked_files.clear()
-
-            if self.cancel_requested:
-                self._cleanup_cancelled_titles()
-
-            self._cleanup_tmp_normalize()
 
     def _get_final_path(self, info_dict):
         """Constrói o caminho do arquivo final baseado no template do yt-dlp"""
@@ -233,6 +239,13 @@ class Downloader:
         Captura TODOS os arquivos gerados (principais e intermediários),
         atualiza progresso e gerencia cancelamento.
         """
+        # 🔓 se estiver cancelando, nunca fique pausado
+        if self.cancel_requested or self.cancel_after_current:
+            self.pause_event.set()
+
+        # ⏸️ PAUSE REAL
+        self.pause_event.wait()
+
         status = d.get("status")
         info = d.get("info_dict") or {}
 
@@ -299,11 +312,8 @@ class Downloader:
 
                 self.progress_hook(percent, playlist_index, playlist_count)
 
-        # --------------------------------------------------
-        # Cancelamento
-        # --------------------------------------------------
         if self.cancel_requested:
-            print("[PROGRESS HOOK] Cancelamento solicitado (imediato)")
+            print("[PROGRESS HOOK] Cancelamento solicitado")
             raise yt_dlp.utils.DownloadCancelled()
 
         # if self.cancel_after_current and status == "downloading":
@@ -463,12 +473,12 @@ class Downloader:
 
         self._delete_cancelled_files()
 
-
     def cancel(self):
-        # Playlist → cancela APÓS o item atual terminar
+        # 🔓 garante que não fique travado em pause
+        self.pause_event.set()
+
         if self.allow_playlist:
             self.cancel_after_current = True
-        # Vídeo único → cancela imediatamente
         else:
             self.cancel_requested = True
 
@@ -595,3 +605,12 @@ class Downloader:
 
         return bool(final_path and os.path.exists(final_path))
 
+    def pause(self):
+        if self.log_hook:
+            self.log_hook("⏸️ Download pausado")
+        self.pause_event.clear()
+
+    def resume(self):
+        if self.log_hook:
+            self.log_hook("▶️ Download retomado")
+        self.pause_event.set()
