@@ -164,7 +164,7 @@ class Downloader:
 
                 self._cleanup_files()
                 self._cleanup_tmp_normalize()
-                self._clear_state()
+                self.clear_state()
 
     def _get_final_path(self, info_dict):
         """Constrói o caminho do arquivo final baseado no template do yt-dlp"""
@@ -624,7 +624,7 @@ class Downloader:
 
     def resume(self):
         self.paused = False
-        self._clear_state()
+        self.clear_state()
 
         if self.status_hook:
             self.status_hook("▶️ Retomando download...")
@@ -648,6 +648,6 @@ class Downloader:
         with open(self.STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
 
-    def _clear_state(self):
+    def clear_state(self):
         if os.path.exists(self.STATE_FILE):
             os.remove(self.STATE_FILE)
