@@ -24,7 +24,11 @@ class AppWindow:
         self._generate_window()
         self._build_ui()
 
+        self.is_paused = False
+
         self.root.mainloop()
+
+
 
     # =========================
     # Estado inicial
@@ -139,6 +143,10 @@ class AppWindow:
         self.download_button = ttk.Button(self.root, text="Baixar", command=self.start_download)
         self.download_button.pack(pady=8)
 
+        # Pausar / Retomar (botão único)
+        self.pause_resume_button = ttk.Button(self.root, text="Pausar", command=self.on_pause_resume_clicked, state="disabled")
+        self.pause_resume_button.pack(pady=4)
+
         self.cancel_button = ttk.Button(self.root, text="Cancelar", command=self.on_cancel_clicked, state="disabled")
         self.cancel_button.pack(pady=4)
 
@@ -173,7 +181,9 @@ class AppWindow:
             return
 
         self.download_button.config(state="disabled")
+        self.pause_resume_button.config(state="normal", text="Pausar")
         self.cancel_button.config(state="normal")
+        self.is_paused = False
 
         self.progress_var.set(0)
         self.status_var.set("Iniciando...")
@@ -210,12 +220,14 @@ class AppWindow:
                 lambda: (
                     self.download_button.config(state="normal"),
                     self.cancel_button.config(
-
                         text="Cancelar",
-
                         state="disabled"
-
                     ),
+                    self.pause_resume_button.config(
+                        state="disabled",
+                        text="Pausar"
+                    ),
+                    setattr(self, "is_paused", False),
                     self.status_var.set("Aguardando")
                 )
             )
@@ -265,6 +277,19 @@ class AppWindow:
         self.log_text.insert(tk.END, text + "\n")
         self.log_text.see(tk.END)
         self.log_text.config(state="disabled")
+
+    def on_pause_resume_clicked(self):
+        if not self.is_paused:
+            # PAUSAR
+            self.downloader.pause()
+            self.is_paused = True
+            self.pause_resume_button.config(text="Retomar")
+
+        else:
+            # RETOMAR
+            self.downloader.resume()
+            self.is_paused = False
+            self.pause_resume_button.config(text="Pausar")
 
     def on_cancel_clicked(self):
         if not hasattr(self, "downloader") or not self.downloader:
