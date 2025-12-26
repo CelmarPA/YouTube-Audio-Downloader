@@ -5,6 +5,7 @@ import yt_dlp
 import re
 import shutil
 import threading
+import json
 
 from tkinter import messagebox
 
@@ -56,8 +57,10 @@ class Downloader:
         status_hook=None,          # status_hook(text: str)
         file_finished_hook=None,   # file_finished_hook(filepath: str)
         error_hook=None,            # error_hook(message: str)
-        log_hook=None
+        log_hook=None,
+        state_file=None,
     ):
+
         self.url = url
         self.output_path = output_path
         self.audio_format = audio_format
@@ -88,6 +91,8 @@ class Downloader:
         self.cancel_after_current = False
         self.blocked_files = set()
         self.cancelled_titles = set()
+
+        self.STATE_FILE = state_file or os.path.join(self.output_path, ".download_state.json")
 
         self.paused = False
 
@@ -159,6 +164,7 @@ class Downloader:
 
                 self._cleanup_files()
                 self._cleanup_tmp_normalize()
+                self._clear_state()
 
     def _get_final_path(self, info_dict):
         """Constrói o caminho do arquivo final baseado no template do yt-dlp"""
@@ -606,11 +612,42 @@ class Downloader:
         return bool(final_path and os.path.exists(final_path))
 
     def pause(self):
+        self.paused = True
+        self._save_state(paused=True)
+
+        if self.status_hook:
+            self.status_hook("⏸️ Pausado")
         if self.log_hook:
             self.log_hook("⏸️ Download pausado")
+
         self.pause_event.clear()
 
     def resume(self):
+        self.paused = False
+        self._clear_state()
+
+        if self.status_hook:
+            self.status_hook("▶️ Retomando download...")
         if self.log_hook:
             self.log_hook("▶️ Download retomado")
+
         self.pause_event.set()
+
+    def _save_state(self, paused=False):
+        state = {
+            "url": self.url,
+            "output_path": self.output_path,
+            "audio_format": self.audio_format,
+            "quality": self.quality,
+            "allow_playlist": self.allow_playlist,
+            "keep_original": self.keep_original_file,
+            "normalize_enabled": self.normalize_enabled,
+            "paused": paused
+        }
+
+        with open(self.STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+
+    def _clear_state(self):
+        if os.path.exists(self.STATE_FILE):
+            os.remove(self.STATE_FILE)

@@ -15,8 +15,6 @@ from core import Downloader
 class AppWindow:
     def __init__(self):
         self.root = tk.Tk()
-
-        # factory
         self.download = Downloader
 
         # estado
@@ -26,9 +24,23 @@ class AppWindow:
 
         self.is_paused = False
 
+        # =============================
+        # Estado global de download
+        # =============================
+        self.STATE_DIR = os.path.join(os.path.dirname(__file__), "..", "download_state")
+        os.makedirs(self.STATE_DIR, exist_ok=True)
+        self.STATE_FILE = os.path.join(self.STATE_DIR, "download_state.json")
+
+        if os.path.exists(self.STATE_FILE):
+                if messagebox.askyesno(
+                        "Download pausado encontrado",
+                        "Existe um download pausado.\nDeseja retomar?"
+                ):
+                    self._resume_from_state(self.STATE_FILE)
+
+        self.root.protocol("WM_DELETE_WINDOW", self.on_window_close)
+
         self.root.mainloop()
-
-
 
     # =========================
     # Estado inicial
@@ -209,7 +221,8 @@ class AppWindow:
                 status_hook=self.set_status,
                 file_finished_hook=self.on_file_finished,
                 error_hook=self.on_error,
-                log_hook=self._log
+                log_hook=self._log,
+                state_file=self.STATE_FILE
             )
 
             self.downloader.start()
@@ -319,3 +332,31 @@ class AppWindow:
             text="Cancelar",
             state="disabled"
         )
+
+    def _resume_from_state(self, path):
+        import json
+
+        with open(path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+
+        self.url_entry.insert(0, state["url"])
+        self.format_var.set(state["audio_format"])
+        self.quality_var.set(state["quality"])
+        self.playlist_var.set(state["allow_playlist"])
+        self.keep_original_var.set(state["keep_original"])
+        self.normalize_var.set(state["normalize_enabled"])
+        self.folder_var.set(state.get("output_path", self.download_dir))
+
+        self.start_download()
+
+    def on_window_close(self):
+        # se estiver baixando
+        if hasattr(self, "downloader") and self.downloader:
+            try:
+                # se estiver ativo, pausa e salva estado
+                self.downloader.pause()
+
+            except Exception:
+                pass
+
+        self.root.destroy()
