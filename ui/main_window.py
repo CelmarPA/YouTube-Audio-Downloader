@@ -1,5 +1,5 @@
 # ui/main_window.py
-
+import datetime
 import os
 import sys
 import re
@@ -10,6 +10,8 @@ from tkinter import ttk, messagebox
 from widgets import download_dir, choose_folder, open_download_folder
 from utils import resource_path
 from core import Downloader
+
+LOG_FILE = os.path.join(os.path.dirname(__file__), "..", "app.log")
 
 
 class AppWindow:
@@ -256,24 +258,30 @@ class AppWindow:
     # =========================
     # Hooks (THREAD-SAFE)
     # =========================
-    def on_progress(self, percent, item_index=None, total_items=None):
+    def on_progress(self, percent, item_index=None, total_items=None, status_text=None):
         """
         Atualiza barra de progresso e status.
         - percent: 0 a 100
         - item_index: índice atual da playlist (opcional)
         - total_items: total de itens na playlist (opcional)
+        - status_text: texto opcional detalhado
         """
 
-        percent = min(max(percent, 0), 100)     # garante entre 0 e 100
+        percent = min(max(percent, 0), 100)  # garante entre 0 e 100
 
         def update():
+            # barra de progresso
             self.progress_var.set(percent)
-            status_text = f"Progresso: {percent:.1f}%"
 
-            if item_index and total_items:
-                status_text = f"Item {item_index}/{total_items} — {status_text}"
+            # monta status se não veio texto detalhado
+            if not status_text:
+                text = f"Progresso: {percent:.1f}%"
+                if item_index and total_items:
+                    text = f"Item {item_index}/{total_items} — {text}"
+            else:
+                text = status_text
 
-            self.status_var.set(status_text)
+            self.status_var.set(text)
 
         self.root.after(0, update)
 
@@ -293,11 +301,24 @@ class AppWindow:
     # =========================
     # Log
     # =========================
-    def _log(self, text):
+    def _log(self, text, level="INFO"):
+        """
+        Adiciona mensagem ao log do app e salva em arquivo.
+        level: INFO / ERROR / WARN
+        """
+
+        timestamp = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        log_text = f"[{timestamp}] {level}: {text}"
+
+        # Log no Text widget
         self.log_text.config(state="normal")
-        self.log_text.insert(tk.END, text + "\n")
+        self.log_text.insert(tk.END, log_text + "\n")
         self.log_text.see(tk.END)
         self.log_text.config(state="disabled")
+
+        # Log em arquivo
+        with open (LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(log_text + "\n")
 
     def on_pause_resume_clicked(self):
         if not self.is_paused:
@@ -358,12 +379,11 @@ class AppWindow:
         self.start_download()
 
     def on_window_close(self):
-        # se estiver baixando
+        # se houver downloader ativo
         if hasattr(self, "downloader") and self.downloader:
             try:
-                # se estiver ativo, pausa e salva estado
-                self.downloader.pause()
-
+                # salva estado apenas se download estiver ativo ou pausado
+                self.downloader.save_state_on_close()
             except Exception:
                 pass
 
