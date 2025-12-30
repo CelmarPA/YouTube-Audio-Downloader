@@ -53,6 +53,7 @@ class Downloader:
         self.keep_original_file = keep_original_file
         self.normalize_enabled = normalize_enabled
 
+
         self.progress_hook = progress_hook
         self.status_hook = status_hook
         self.file_finished_hook = file_finished_hook
@@ -115,9 +116,6 @@ class Downloader:
                     if self.log_hook:
                         self.log_hook("[CACHE] Arquivo final já existe, pulando download")
 
-            if self.normalize_enabled:
-                self._normalize_files()
-
             if self.status_hook:
                 self.status_hook("Concluído ✔")
             if self.log_hook:
@@ -130,11 +128,49 @@ class Downloader:
                 self.log_hook(f"[ERROR] {e}")
 
         finally:
-            if not self.paused:
+            # 🔥 CANCELADO + MANTER → MOVER ARQUIVOS DO TEMP
+            if self.cancel_requested and self.keep_after_cancel:
+                if self.log_hook:
+                    self.log_hook("[CANCEL] Cancelado com manter → preservando arquivos")
+
+                # ⚠️ SE ESTAVA NORMALIZANDO, MOVE ANTES DE APAGAR O TEMP
+                if self.normalize_enabled:
+                    self._normalize_files()  # este método JÁ move sem normalizar nesse cenário
+
+                for file in list(self.generated_files):
+                    if file.endswith(".part") and os.path.exists(file):
+                        try:
+                            os.remove(file)
+                            if self.log_hook:
+                                self.log_hook(f"[CANCEL] .part removido (incompleto): {file}")
+                        except Exception as e:
+                            if self.log_hook:
+                                self.log_hook(f"[ERROR] Falha ao remover .part: {file} — {e}")
+
+                self._cleanup_files()  # ← 🔥 ADICIONE ESTA LINHA
+                self._cleanup_tmp_normalize()
+                self._clear_state()
+                self._download_active = False
+                return
+
+            # 🔥 CANCELADO + NÃO MANTER → LIMPA TUDO
+            if self.cancel_requested and not self.keep_after_cancel:
+                if self.log_hook:
+                    self.log_hook("[CANCEL] Cancelado sem manter → limpando arquivos")
+
                 self._cleanup_files()
-                if self.cancel_requested and self.normalize_enabled and self.keep_after_cancel:
-                    self._move_playlist_from_tmp()
-                self.blocked_files.clear()
+                self._cleanup_tmp_normalize()
+                self._clear_state()
+                self._download_active = False
+
+                return
+
+            # ✅ FLUXO NORMAL (download concluído)
+            if not self.paused:
+                if self.normalize_enabled:
+                    self._normalize_files()
+
+                self._cleanup_files()
                 self._cleanup_tmp_normalize()
                 self._clear_state()
                 self._download_active = False
@@ -183,172 +219,239 @@ class Downloader:
             "nopart": False
         }
 
+    # ================== Método cancel ==================
+    def cancel(self, after_current=False):
+        """
+        Cancela o download.
+        :param after_current: se True, cancela apenas após o item atual (playlist)
+        """
+        self.pause_event.set()
+
+        if after_current and self.allow_playlist:
+            self.cancel_after_current = True
+            if self.log_hook:
+                self.log_hook("⏭️ Cancelamento solicitado (aguardando item atual terminar)")
+        else:
+            self.cancel_requested = True
+            self.cancel_after_current = False
+            if self.log_hook:
+                self.log_hook("[CANCEL] Cancelamento imediato solicitado")
+
+    # ================== Progress hook ==================
     def _progress_hook(self, d):
-        if self.cancel_requested or self.cancel_after_current:
-            self.pause_event.set()
         self.pause_event.wait()
 
-        status = d.get("status")
-        info = d.get("info_dict") or {}
+        # captura TODOS os arquivos criados nesta fase
+        for key in ("tmpfilename", "filename"):
+            path = d.get(key)
+            if path:
+                self.generated_files.add(os.path.abspath(path))
 
-        if status == "downloading":
-            downloaded_bytes = d.get("downloaded_bytes", 0)
-            total_bytes = d.get("total_bytes") or d.get("total_bytes_estimate") or 1
-            percent = downloaded_bytes / total_bytes * 100
-            speed = d.get("speed") or 0
-            eta = d.get("eta") or 0
-            downloaded_mb = downloaded_bytes / (1024 * 1024)
-            total_mb = total_bytes / (1024 * 1024)
-            playlist_index = d.get("playlist_index")
-            playlist_count = d.get("playlist_count")
-
-            status_text = f"{percent:.1f}% — {downloaded_mb:.2f}/{total_mb:.2f} MB — {speed / 1024:.2f} KB/s — ETA {eta}s"
-            if playlist_index and playlist_count:
-                status_text = f"Item {playlist_index}/{playlist_count} — {status_text}"
-
-            # Adiciona arquivo temporário (.part ou intermediário) à lista de gerados
+        # Cancelamento imediato só para casos sem "cancel_after_current"
+        if self.cancel_requested and not self.cancel_after_current:
             tmp_file = d.get("tmpfilename")
-            if tmp_file:
-                self.generated_files.add(os.path.abspath(tmp_file))
+            if tmp_file and os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                    if self.log_hook:
+                        self.log_hook(f"[CANCEL] Arquivo temporário removido: {tmp_file}")
+                except Exception as e:
+                    if self.log_hook:
+                        self.log_hook(f"[ERROR] Falha ao remover temp cancelado: {tmp_file} — {e}")
 
-            if downloaded_bytes == 0 and self.log_hook:
-                self.log_hook(f"[DOWNLOAD] Iniciando download: {info.get('title', 'untitled')}")
+            raise yt_dlp.utils.DownloadError("Download cancelado pelo usuário")
 
-            if self.log_hook:
-                self.log_hook(f"[DOWNLOAD] {status_text}")
-
-            if self.progress_hook:
-                self.progress_hook(percent, playlist_index, playlist_count, status_text)
-
+    # ================== Postprocessor hook ==================
     def _postprocessor_hook(self, d):
         if d.get("status") != "finished":
             return
 
         info = d.get("info_dict") or {}
 
-        # Caminho do arquivo final ou intermediário
-        paths_to_add = set()
+        # garante que arquivos gerados pelo ffmpeg também entrem no cleanup
+        for key in ("filepath", "filename", "_filename"):
+            path = d.get(key) or info.get(key)
+            if path:
+                self.generated_files.add(os.path.abspath(path))
 
-        # Adiciona caminho principal (final ou intermediário)
         main_file = d.get("filepath") or d.get("filename") or info.get("_filename")
-        if main_file:
-            main_file = os.path.abspath(main_file)
-            paths_to_add.add(main_file)
+        main_file = os.path.abspath(main_file) if main_file else None
 
-            # Se keepvideo=True, garante mp4 original
-            base, _ = os.path.splitext(main_file)
-            mp4 = base + ".mp4"
-            if os.path.exists(mp4):
-                paths_to_add.add(mp4)
-
-        # Adiciona arquivos intermediários do yt-dlp se existirem
-        out_dir = os.path.dirname(main_file) if main_file else self.output_path
-        basename = os.path.splitext(os.path.basename(main_file or "temp"))[0]
-
-        for f in os.listdir(out_dir):
-            if f.startswith(basename) and YTDLP_INTERMEDIATE_RE.search(f):
-                paths_to_add.add(os.path.join(out_dir, f))
-
-        # Adiciona todos os encontrados em generated_files
-        for path in paths_to_add:
-            self.generated_files.add(path)
-            if self.log_hook:
-                self.log_hook(f"[POSTPROCESS] Arquivo rastreado: {path}")
-
-        # Hook externo
-        if main_file and self.file_finished_hook:
-            self.file_finished_hook(main_file)
-
-        # -------- CANCELAMENTO --------
+        # ---- resto do código INTACTO ----
         if self.cancel_after_current:
-            self.cancel_requested = True
-            title = info.get("title", "")
-            keep = messagebox.askyesno(
-                "Cancelar playlist",
-                f"Deseja manter este arquivo?\n\n{os.path.basename(main_file)}"
-            )
-            self.keep_after_cancel = keep
-
-            if not keep and title:
-                self.cancelled_titles.add(title)
-
-            if self.log_hook:
-                self.log_hook(f"[CANCEL] Cancelamento solicitado — manter arquivo? {keep}")
-
             self.cancel_after_current = False
+
+            keep = True
+            if main_file and os.path.exists(main_file):
+                keep = messagebox.askyesno(
+                    "Cancelar playlist",
+                    f"Deseja manter o(s) arquivo(s) baixado(s)?\n\n{os.path.basename(main_file)}"
+                )
+                if not keep:
+                    self.cancelled_files.add(main_file)
+
+                    playlist_dir = os.path.dirname(main_file)
+                    self.blocked_files.add(playlist_dir)
+
+                    if self.log_hook:
+                        self.log_hook(f"[CANCEL] Arquivo e pasta marcados para remoção: {playlist_dir}")
+
+            self.keep_after_cancel = keep
+            self.cancel_requested = True
+            if self.log_hook:
+                self.log_hook(f"[CANCEL] Playlist cancelada — manter arquivo atual? {keep}")
 
     def _normalize_files(self):
         """
-        Normaliza arquivos de áudio para target LUFS (-14 dB) usando tmp_normalize.
+        Normaliza arquivos de áudio para target LUFS (-14 dB)
+        SOMENTE arquivos gerados no tmp_normalize.
         """
 
         files_to_process = self._collect_files_for_normalize()
+        tmp_dir = os.path.join(self.output_path, "temp_normalize")
 
-        total_files = len(files_to_process)
-        if total_files == 0:
+        # 🔥 CANCELADO + MANTER → apenas mover arquivos, sem normalizar
+        if self.cancel_requested and self.keep_after_cancel:
+            if self.log_hook:
+                self.log_hook("[NORMALIZE] Cancelado com manter → pulando normalização")
+
+            for tmp_file, final_file in files_to_process:
+                if not tmp_file or not final_file:
+                    continue
+
+                if not os.path.exists(tmp_file):
+                    continue
+
+                os.makedirs(os.path.dirname(final_file), exist_ok=True)
+                try:
+                    shutil.move(tmp_file, final_file)
+                    if self.file_finished_hook:
+                        self.file_finished_hook(final_file)
+                except Exception:
+                    pass
+
+            return
+
+        print(f"OS ARQUIVOS PARA PROCESSARRRRRRRRRRRRR {files_to_process}")
+
+        if not tmp_dir:
+            return
+
+        if self.log_hook:
+            self.log_hook(f"[NORMALIZE] Arquivos coletados: {len(files_to_process)}")
+
+        if not files_to_process:
             if self.log_hook:
                 self.log_hook("[NORMALIZE] Nenhum arquivo para normalizar.")
             return
 
-        if self.log_hook:
-            self.log_hook(f"[NORMALIZE] {total_files} arquivo(s) serão normalizados")
-
         for index, (tmp_file, final_file) in enumerate(files_to_process, start=1):
-            if final_file in self.blocked_files:
-                if self.log_hook:
-                    self.log_hook(f"[NORMALIZE] Arquivo cancelado, ignorando: {final_file}")
-                if os.path.exists(tmp_file):
-                    os.remove(tmp_file)
+            if not tmp_file or not final_file:
                 continue
 
-            # Log do arquivo atual
+            tmp_file = os.path.abspath(tmp_file)
+            final_file = os.path.abspath(final_file)
+
+            # 🔒 GARANTIA ABSOLUTA: só arquivos do tmp_normalize
+            if not tmp_file.startswith(tmp_dir + os.sep):
+                if self.log_hook:
+                    self.log_hook(f"[NORMALIZE] Ignorado (fora do tmp): {tmp_file}")
+                continue
+
+            # ❌ arquivo não existe
+            if not os.path.exists(tmp_file):
+                if self.log_hook:
+                    self.log_hook(f"[NORMALIZE] Arquivo não encontrado: {tmp_file}")
+                continue
+
+            # ❌ arquivo cancelado
+            if final_file in self.cancelled_files:
+                if self.log_hook:
+                    self.log_hook(f"[NORMALIZE] Ignorado (cancelado): {tmp_file}")
+                continue
+
+            # ❌ pasta ou arquivo bloqueado
+            if any(final_file.startswith(os.path.abspath(b)) for b in self.blocked_files):
+                if self.log_hook:
+                    self.log_hook(f"[NORMALIZE] Ignorado (bloqueado): {final_file}")
+                try:
+                    os.remove(tmp_file)
+                except OSError:
+                    pass
+                continue
+
+            # ❌ extensão errada (normaliza SOMENTE o formato final)
+            if not tmp_file.lower().endswith(f".{self.audio_format.lower()}"):
+                if self.log_hook:
+                    self.log_hook(f"[NORMALIZE] Ignorado (extensão): {tmp_file}")
+
+                shutil.move(tmp_file, final_file)
+                continue
+
             if self.log_hook:
-                self.log_hook(f"[NORMALIZE] ({index}/{total_files}) Normalizando: {tmp_file}")
+                self.log_hook(
+                    f"[NORMALIZE] ({index}/{len(files_to_process)}) Normalizando: {os.path.basename(tmp_file)}"
+                )
 
             try:
-                # Normaliza apenas o arquivo no formato de áudio escolhido
-                if tmp_file.lower().endswith(f".{self.audio_format.lower()}"):
-                    Audio(tmp_file).normalize(target_lufs=-14.0)
+                print(f"ESTE È O TEMP FILE: {tmp_file}")
+                print(f"ESTE È O TEMP final FILE: {final_file}")
+                # 🎧 NORMALIZA
+                Audio(tmp_file).normalize(target_lufs=-14.0)
 
-                # Garante que a pasta final exista e move o arquivo
+                # 📁 garante pasta final
                 os.makedirs(os.path.dirname(final_file), exist_ok=True)
+                print(f"ESTE E O TEMPPPPPP FILE: {tmp_file}")
+
+                print(f"ESTE E O FINALLLLL FILE: {final_file}")
+                # 🚚 move para destino final
                 shutil.move(tmp_file, final_file)
 
-                # Log sucesso
                 if self.log_hook:
-                    self.log_hook(f"[NORMALIZE] ({index}/{total_files}) Normalizado e movido para: {final_file}")
+                    self.log_hook(f"[NORMALIZE] OK → {final_file}")
 
-                # Hook de arquivo finalizado
                 if self.file_finished_hook:
                     self.file_finished_hook(final_file)
 
             except Exception as e:
                 if self.error_hook:
-                    self.error_hook(f"[NORMALIZE][ERROR] Falha ao normalizar {tmp_file}: {e}")
+                    self.error_hook(f"[NORMALIZE][ERROR] {tmp_file}: {e}")
+                    print(f"[NORMALIZE][ERROR] {tmp_file}: {e}")
 
         if self.log_hook:
-            self.log_hook(f"[NORMALIZE] Todos os {total_files} arquivos processados")
+            self.log_hook("[NORMALIZE] Finalizado")
 
     def _cleanup_files(self):
+
         allowed_exts = {f".{self.audio_format.lower()}"}
+
         if self.keep_original_file:
             allowed_exts.add(".mp4")
 
+        # 1️⃣ Remove arquivos explicitamente cancelados (prioridade)
+        self._delete_cancelled_files()
+
+        # 2️⃣ Remove arquivos intermediários e não permitidos
         for file_path in list(self.generated_files):
-            if file_path in self.blocked_files or not os.path.exists(file_path):
+            if not os.path.exists(file_path):
                 continue
+
+            for blocked in self.blocked_files:
+                if file_path.startswith(blocked):
+                    continue
 
             filename = os.path.basename(file_path)
             ext = os.path.splitext(filename)[1].lower()
 
+            # 🔥 SEMPRE remover arquivos intermediários do yt-dlp
             if YTDLP_INTERMEDIATE_RE.search(filename):
                 try:
                     os.remove(file_path)
                     if self.log_hook:
-                        self.log_hook(f"[CLEANUP] Arquivo intermediário removido: {file_path}")
+                        self.log_hook(f"[CLEANUP] Intermediário removido: {file_path}")
                 except OSError as e:
                     if self.log_hook:
-                        self.log_hook(f"[ERROR] Falha ao remover arquivo intermediário: {file_path} — {e}")
+                        self.log_hook(f"[ERROR] Falha ao remover intermediário: {file_path} — {e}")
                 continue
 
             if ext not in allowed_exts:
@@ -356,11 +459,22 @@ class Downloader:
                     os.remove(file_path)
                     if self.log_hook:
                         self.log_hook(f"[CLEANUP] Arquivo removido (ext não permitido): {file_path}")
+
                 except OSError as e:
                     if self.log_hook:
                         self.log_hook(f"[ERROR] Falha ao remover arquivo: {file_path} — {e}")
 
-        self._delete_cancelled_files()
+        # 3️⃣ Remove pastas de playlist canceladas
+        for path in list(self.blocked_files):
+            if os.path.isdir(path):
+                try:
+                    shutil.rmtree(path)
+                    if self.log_hook:
+                        self.log_hook(f"[CLEANUP] Pasta removida: {path}")
+
+                except OSError as e:
+                    if self.log_hook:
+                        self.log_hook(f"[ERROR] Falha ao remover pasta: {path} — {e}")
 
     def _delete_cancelled_files(self):
         for file_path in list(self.cancelled_files):
@@ -403,7 +517,14 @@ class Downloader:
 
     def _is_cached_final(self, info_dict) -> bool:
         final_path = self._get_final_path(info_dict)
-        return bool(final_path and os.path.exists(final_path))
+
+        if not final_path or not os.path.exists(final_path):
+            return False
+
+        if self.keep_original_file:
+            return False
+
+        return True
 
     def pause(self):
         if not self._download_active:
@@ -471,10 +592,9 @@ class Downloader:
 
         for root, _, files in os.walk(self.tmp_dir):
             for f in files:
-                print("OS ARQUIVOS SAO:", f)
                 ext = os.path.splitext(f)[1].lower()
 
-                # Coleta apenas arquivos de áudio no formato escolhido
+                # Coleta apenas arquivos de áudio e vídeo no formato escolhido
                 if ext not in [".mp3", ".mp4"]:
                     continue
 
@@ -491,3 +611,4 @@ class Downloader:
 
         print("ESSESS SAO OS PARA PROCESSAR:", files_to_process)
         return files_to_process
+

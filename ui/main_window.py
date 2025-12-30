@@ -6,10 +6,13 @@ import re
 import tkinter as tk
 from threading import Thread
 from tkinter import ttk, messagebox
+import yt_dlp
 
 from widgets import download_dir, choose_folder, open_download_folder
 from utils import resource_path
 from core import Downloader
+from ui.window_playlist import PlaylistFrame
+
 
 LOG_FILE = os.path.join(os.path.dirname(__file__), "..", "app.log")
 
@@ -235,21 +238,53 @@ class AppWindow:
                 state_file=self.STATE_FILE
             )
 
+            # Se for playlist, abrir janela de seleção
+            if self.playlist_var.get():
+                self.root.after(0, lambda: (
+                    self.pause_resume_button.config(state="disabled"),
+                    self.cancel_button.config(state="disabled")
+                ))
+
+                import yt_dlp
+
+                # Extrai apenas informações (não baixa)
+                with yt_dlp.YoutubeDL({'quiet': True, 'skip_download': True}) as ydl:
+                    info = ydl.extract_info(self.url_entry.get().strip(), download=False)
+
+                if 'entries' in info:
+                    playlist_title = info.get('title', 'Playlist')
+                    entries = info['entries']
+
+                    # Abre janela modal para seleção
+                    from ui.window_playlist import PlaylistFrame
+                    playlist_window = PlaylistFrame(self.root, playlist_title, entries)
+                    self.root.wait_window(playlist_window)
+
+                    self.root.after(0, lambda: (
+                        self.pause_resume_button.config(state="normal", text="Pausar"),
+                        self.cancel_button.config(state="normal")
+                    ))
+
+                    selected_entries = playlist_window.selected
+
+                    if selected_entries is None or len(selected_entries) == 0:
+                        self._log("Nenhum vídeo selecionado, download cancelado.")
+                        return
+
+                    # Passa só os itens selecionados para download
+                    self.downloader.selected_entries = selected_entries
+
+            # Inicia o download
             self.downloader.start()
 
         finally:
+            # Reset UI
             self.root.after(
                 0,
                 lambda: (
                     self.download_button.config(state="normal"),
-                    self.cancel_button.config(
-                        text="Cancelar",
-                        state="disabled"
-                    ),
-                    self.pause_resume_button.config(
-                        state="disabled",
-                        text="Pausar"
-                    ),
+                    self.cancel_button.config(text="Cancelar", state="disabled"),
+                    self.pause_resume_button.config(state="disabled", text="Pausar"),
                     setattr(self, "is_paused", False),
                     self.status_var.set("Aguardando")
                 )
@@ -345,16 +380,19 @@ class AppWindow:
             ):
                 return
 
+            # 🔥 AQUI ESTAVA O ERRO
+            self.downloader.cancel(after_current=True)
+
             self.status_var.set("⏭️ Finalizando item atual da playlist...")
             self._log("⏭️ Cancelamento solicitado (aguardando item atual terminar)")
 
         # VÍDEO ÚNICO
         else:
+            self.downloader.cancel(after_current=False)
             self.status_var.set("Cancelando download...")
             self._log("❌ Cancelamento solicitado: download será interrompido imediatamente.")
 
         self.cancel_button.config(state="disabled")
-        self.downloader.cancel()
 
     def on_download_finished(self):
         self.cancel_button.config(
@@ -400,3 +438,15 @@ class AppWindow:
 
         # Opcional: log
         self._log("Download pausado descartado pelo usuário.")
+
+    def open_playlist_window(self, playlist_info):
+        """
+        Abre a janela da playlist e retorna a lista de vídeos selecionados.
+        playlist_info: dicionário retornado pelo yt_dlp contendo 'title' e 'entries'
+        """
+
+        playlist_window = PlaylistFrame(self.root, playlist_title=playlist_info.get("title", "Playlist"), entries=playlist_info.get("entries", []))
+        self.root.wait_window(playlist_window)  # Espera o usuário fechar a janela
+
+        return playlist_window.selected     # lista de dicionários ou None se cancelado
+

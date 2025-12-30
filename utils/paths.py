@@ -23,4 +23,11 @@ def get_ffmpeg_path():
             os.path.dirname(os.path.abspath(__file__))
         )
 
-    return os.path.join(base_path, 'bin')
+    ffmpeg_path = os.path.join(base_path, "bin", "ffmpeg.exe")
+
+    if not os.path.isfile(ffmpeg_path):
+        raise FileNotFoundError(
+            f"ffmpeg.exe não encontrado em: {ffmpeg_path}"
+        )
+
+    return ffmpeg_path
