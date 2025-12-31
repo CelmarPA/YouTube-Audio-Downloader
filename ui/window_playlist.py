@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+import os
 
 def duration_format(duration_sec):
     if duration_sec >= 3600:
@@ -16,6 +17,43 @@ def duration_format(duration_sec):
         duration_str = f"{minutes}:{seconds:02d}"
 
     return duration_str
+
+
+def mark_already_downloaded(entries, playlist_dir, audio_format, keep_original):
+    if not os.path.isdir(playlist_dir):
+        return
+
+    for entry in entries:
+        video_id = entry.get("id")
+        entry["_already_downloaded"] = False
+
+        if not video_id:
+            continue
+
+        base_found = False
+        audio_found = False
+        video_found = False
+
+        for root, _, files in os.walk(playlist_dir):
+            for file in files:
+                if f"[{video_id}]" not in file:
+                    continue
+
+                if file.endswith(f".{audio_format.lower()}"):
+                    audio_found = True
+
+                if file.endswith(".mp4"):
+                    video_found = True
+
+            if audio_found or video_found:
+                break
+
+        # 🔒 REGRA ÚNICA (igual ao core)
+        if not keep_original:
+            entry["_already_downloaded"] = audio_found
+        else:
+            entry["_already_downloaded"] = audio_found and video_found
+
 
 
 class PlaylistFrame(tk.Toplevel):
@@ -66,23 +104,35 @@ class PlaylistFrame(tk.Toplevel):
 
     def _populate(self):
         for i, entry in enumerate(self.entries, start=1):
-            var = tk.BooleanVar(value=True)
+            already = entry.get("_already_downloaded", False)
+            print(f"VERIFICANDOOOOOOO: {already}")
+            title = entry.get("title", "Playlist")
+            # 🔥 CORREÇÃO AQUI
+            var = tk.BooleanVar(
+                value=entry.get("__preselected__", False)
+            )
 
             title = entry.get("title", "untitled")
-            duration = entry.get("duration", "0")
+            duration = entry.get("duration", 0)
 
-            # Usa função para formatar duração para mm:ss ou hh:mm:ss
             duration_str = duration_format(duration_sec=duration)
+            text = f"{i}. {title} [{duration_str}]"
+
+            if already:
+                text = f"✔ {text} (já baixado)"
 
             chk = tk.Checkbutton(
                 self.inner_frame,
-                text=f"{i}. {title} [{duration_str}]",
+                text=text,
                 variable=var,
                 anchor="w",
                 justify="left",
-                wraplength=500
+                wraplength=500,
+                fg="gray" if already else "black",
+                state="disabled" if already else "normal"
             )
             chk.pack(fill="x", anchor="w", pady=2)
+
             self.check_vars.append(var)
 
     def _build_buttons(self):

@@ -60,6 +60,7 @@ class AppWindow:
     # =========================
     def _init_state(self):
         self.download_dir = download_dir
+        self.saved_selection = None
         self.format_var = tk.StringVar(value="mp3")
         self.quality_var = tk.StringVar(value="192")
         self.playlist_var = tk.BooleanVar()
@@ -253,10 +254,39 @@ class AppWindow:
 
                 if 'entries' in info:
                     playlist_title = info.get('title', 'Playlist')
+
+                    playlist_dir = os.path.join(
+                        self.folder_var.get(),
+                        playlist_title
+                    )
+
                     entries = info['entries']
 
+                    if self.saved_selection:
+                        saved_ids = {e["id"] for e in self.saved_selection if "id" in e}
+
+                        for entry in entries:
+                            entry["__preselected__"] = entry.get("id") in saved_ids
+
                     # Abre janela modal para seleção
-                    from ui.window_playlist import PlaylistFrame
+                    from ui.window_playlist import PlaylistFrame,mark_already_downloaded
+                    from core.downloader import sanitize_filename
+
+                    from ui.window_playlist import mark_already_downloaded
+
+                    # 📂 pasta REAL da playlist (a mesma que o downloader cria)
+                    playlist_dir = os.path.join(
+                        self.folder_var.get(),
+                        self.downloader.get_playlist_folder_name(info)
+                    )
+
+                    mark_already_downloaded(
+                        entries,
+                        playlist_dir,
+                        self.format_var.get(),
+                        self.keep_original_var.get()
+                    )
+
                     playlist_window = PlaylistFrame(self.root, playlist_title, entries)
                     self.root.wait_window(playlist_window)
 
@@ -413,6 +443,7 @@ class AppWindow:
         self.keep_original_var.set(state["keep_original"])
         self.normalize_var.set(state["normalize_enabled"])
         self.folder_var.set(state.get("output_path", self.download_dir))
+        self.saved_selection = state.get("playlist_selection")
 
         self.start_download()
 
