@@ -12,6 +12,7 @@ from tkinter import messagebox
 from utils import get_ffmpeg_path
 from core.audio import Audio
 from utils.audio_tags import mark_as_normalized, is_normalized
+from utils import is_normalized
 
 YTDLP_INTERMEDIATE_RE = re.compile(
     r"\.f\d+\.(webm|mp4|mkv|m4a|aac|opus)(\.part)?$",
@@ -67,6 +68,7 @@ class Downloader:
         self.files_to_normalize = []
         self.collected_files = []
         self.tmp_dir = None
+        self.tmp_playlist_dir = None
         self.playlist_index = None
         self.playlist_count = None
         self.cancelled = False
@@ -86,6 +88,7 @@ class Downloader:
 
     def start(self):
         self._download_active = True
+        self.tmp_playlist_dir = None
 
         try:
             # =============================
@@ -98,8 +101,6 @@ class Downloader:
             self.collected_files.clear()
             self.files_to_normalize.clear()
 
-            self._build_ydl_opts()
-
             if self.status_hook:
                 self.status_hook("Iniciando download...")
 
@@ -109,15 +110,31 @@ class Downloader:
             # =============================
             # 2️⃣ Extrai info SEM baixar
             # =============================
+            self._build_ydl_opts()  # ✅ GARANTE ydl_opts
+
             with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
                 info = ydl.extract_info(self.url, download=False)
 
             # =============================
-            # 3️⃣ PLAYLIST
+            # 3️⃣ PLAYLIST (COM TMP)
             # =============================
             if self.allow_playlist and "entries" in info:
                 playlist_name = sanitize_filename(info.get("title", "Playlist"))
                 self.playlist_dir = os.path.join(self.output_path, playlist_name)
+
+                # 🔥 TMP EXCLUSIVO DA PLAYLIST
+                self.tmp_playlist_dir = os.path.join(
+                    self.output_path,
+                    f".tmp_playlist_{playlist_name}_{int(time.time())}"
+                )
+                os.makedirs(self.tmp_playlist_dir, exist_ok=True)
+
+                # 🔥 build ydl_opts APONTANDO PARA TMP DA PLAYLIST
+                self._build_ydl_opts()
+                self.ydl_opts["outtmpl"] = os.path.join(
+                    self.tmp_playlist_dir,
+                    "%(title)s [%(id)s].%(ext)s"
+                )
 
                 selected_ids = None
                 if self.selected_entries:
@@ -133,17 +150,16 @@ class Downloader:
                     if not video_id:
                         continue
 
-                    # 🔒 respeita seleção da UI
-                    if selected_ids is not None and video_id not in selected_ids:
+                    if selected_ids and video_id not in selected_ids:
                         continue
 
                     title = sanitize_filename(entry.get("title", "untitled"))
-                    base_path = os.path.join(
+                    final_base = os.path.join(
                         self.playlist_dir,
                         f"{title} [{video_id}]"
                     )
 
-                    if self._should_download(base_path):
+                    if self._should_download(final_base):
                         filtered_entries.append(entry)
                     else:
                         if self.log_hook:
@@ -152,6 +168,7 @@ class Downloader:
                 if not filtered_entries:
                     if self.log_hook:
                         self.log_hook("[CACHE] Nenhum item novo para baixar")
+                    shutil.rmtree(self.tmp_playlist_dir, ignore_errors=True)
                     return
 
                 info["entries"] = filtered_entries
@@ -160,9 +177,11 @@ class Downloader:
                     ydl.process_ie_result(info, download=True)
 
             # =============================
-            # 4️⃣ SINGLE
+            # 4️⃣ SINGLE (SEM TMP)
             # =============================
             else:
+                self._build_ydl_opts()
+
                 video_id = info.get("id")
                 title = sanitize_filename(info.get("title", "untitled"))
 
@@ -171,17 +190,16 @@ class Downloader:
                         self.output_path,
                         f"{title} [{video_id}]"
                     )
-
                     if not self._should_download(base_path):
                         if self.log_hook:
-                            self.log_hook("[CACHE] Arquivos já existem, pulando")
+                            self.log_hook("[CACHE] Arquivo já existe, pulando")
                         return
 
                 with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
                     ydl.process_ie_result(info, download=True)
 
             # =============================
-            # 5️⃣ Final normal
+            # 5️⃣ FINAL OK
             # =============================
             if self.status_hook:
                 self.status_hook("Download concluído ✔")
@@ -197,19 +215,25 @@ class Downloader:
 
         finally:
             # =============================
-            # 6️⃣ Cancelado + manter
+            # 6️⃣ CANCELADO + MANTER
             # =============================
             if self.cancel_requested and self.keep_after_cancel:
                 if self.log_hook:
-                    self.log_hook("[CANCEL] Cancelado com manter → preservando arquivos")
+                    self.log_hook("[CANCEL] Cancelado com manter")
 
                 if self.normalize_enabled:
                     self._normalize_files()
+                    self._cleanup_files()
 
-                self._cleanup_files()
-
-                if self.allow_playlist and self.playlist_dir:
-                    self._cleanup_empty_dirs(self.playlist_dir)
+                # 🔥 move TMP → pasta final
+                if self.tmp_playlist_dir and os.path.exists(self.tmp_playlist_dir):
+                    os.makedirs(self.playlist_dir, exist_ok=True)
+                    for f in os.listdir(self.tmp_playlist_dir):
+                        shutil.move(
+                            os.path.join(self.tmp_playlist_dir, f),
+                            os.path.join(self.playlist_dir, f)
+                        )
+                    shutil.rmtree(self.tmp_playlist_dir, ignore_errors=True)
 
                 self._cleanup_tmp_normalize()
                 self._clear_state()
@@ -217,37 +241,41 @@ class Downloader:
                 return
 
             # =============================
-            # 7️⃣ Cancelado sem manter
+            # 7️⃣ CANCELADO SEM MANTER
             # =============================
             if self.cancel_requested and not self.keep_after_cancel:
                 if self.log_hook:
-                    self.log_hook("[CANCEL] Cancelado sem manter → deletando arquivos")
+                    self.log_hook("[CANCEL] Cancelado sem manter")
 
-                # 🔥 marca TODOS os arquivos desta execução como cancelados
-                for f in self.collected_files:
-                    self.cancelled_files.add(f)
+                # 🔥 APAGA SOMENTE A TMP
+                if self.tmp_playlist_dir:
+                    shutil.rmtree(self.tmp_playlist_dir, ignore_errors=True)
 
                 self._cleanup_files()
-
-                if self.allow_playlist and self.playlist_dir:
-                    self._cleanup_empty_dirs(self.playlist_dir)
-
                 self._cleanup_tmp_normalize()
                 self._clear_state()
                 self._download_active = False
                 return
 
             # =============================
-            # 8️⃣ Fluxo normal
+            # 8️⃣ FLUXO NORMAL
             # =============================
             if not self.paused:
                 if self.normalize_enabled:
                     self._normalize_files()
 
+                # 🔥 LIMPA INTERMEDIÁRIOS AQUI
                 self._cleanup_files()
 
-                if self.allow_playlist and self.playlist_dir:
-                    self._cleanup_empty_dirs(self.playlist_dir)
+                # 🔥 move TMP → pasta final
+                if self.tmp_playlist_dir and os.path.exists(self.tmp_playlist_dir):
+                    os.makedirs(self.playlist_dir, exist_ok=True)
+                    for f in os.listdir(self.tmp_playlist_dir):
+                        shutil.move(
+                            os.path.join(self.tmp_playlist_dir, f),
+                            os.path.join(self.playlist_dir, f)
+                        )
+                    shutil.rmtree(self.tmp_playlist_dir, ignore_errors=True)
 
                 self._cleanup_tmp_normalize()
                 self._clear_state()
@@ -265,42 +293,56 @@ class Downloader:
 
     def _build_ydl_opts(self):
         base_output = self.output_path
+
+        # ===============================
+        # 🔹 NORMALIZE TEM PRIORIDADE ABSOLUTA
+        # ===============================
         if self.normalize_enabled:
             self.tmp_dir = os.path.join(base_output, "temp_normalize")
             os.makedirs(self.tmp_dir, exist_ok=True)
             output_dir = self.tmp_dir
+
+        # ===============================
+        # 🔹 SEM NORMALIZE → pode usar temp de playlist
+        # ===============================
+        elif self.allow_playlist and self.tmp_playlist_dir:
+            output_dir = self.tmp_playlist_dir
+
+        # ===============================
+        # 🔹 SEM NORMALIZE E SEM PLAYLIST
+        # ===============================
         else:
             output_dir = base_output
-
-        if self.allow_playlist:
-            outtmpl = os.path.join(
-                output_dir,
-                "%(playlist_title)s/%(title)s [%(id)s].%(ext)s"
-            )
-        else:
-            outtmpl = os.path.join(
-                output_dir,
-                "%(title)s [%(id)s].%(ext)s"
-            )
 
         self.ydl_opts = {
             "format": "bestvideo+bestaudio/best",
             "ffmpeg_location": self.ffmpeg_path,
-            "outtmpl": outtmpl,
+
+            # 🔥 SEMPRE um único template
+            "outtmpl": os.path.join(
+                output_dir,
+                "%(title)s [%(id)s].%(ext)s"
+            ),
+
             "noplaylist": not self.allow_playlist,
             "merge_output_format": "mp4",
             "external_downloader_args": ["-nostdin"],
             "keepvideo": self.keep_original_file,
+
             "progress_hooks": [self._progress_hook],
             "postprocessor_hooks": [self._postprocessor_hook],
+
             "postprocessors": [
-                {"key": "FFmpegExtractAudio", "preferredcodec": self.audio_format, "preferredquality": self.quality}
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": self.audio_format,
+                    "preferredquality": self.quality,
+                }
             ],
+
             "restrictfilenames": True,
-            "quiet": False,
-            "no_warnings": False,
             "continuedl": True,
-            "nopart": False
+            "nopart": False,
         }
 
     # ================== Método cancel ==================
@@ -325,13 +367,13 @@ class Downloader:
     def _progress_hook(self, d):
         self.pause_event.wait()
 
-        # captura TODOS os arquivos criados nesta fase
+        # captura arquivos TEMPORÁRIOS do yt-dlp
         for key in ("tmpfilename", "filename"):
             path = d.get(key)
             if path:
                 self.generated_files.add(os.path.abspath(path))
 
-        # Cancelamento imediato só para casos sem "cancel_after_current"
+        # Cancelamento imediato
         if self.cancel_requested and not self.cancel_after_current:
             tmp_file = d.get("tmpfilename")
             if tmp_file and os.path.exists(tmp_file):
@@ -352,33 +394,49 @@ class Downloader:
 
         info = d.get("info_dict") or {}
 
-        # garante que arquivos gerados pelo ffmpeg também entrem no cleanup
-        for key in ("filepath", "filename", "_filename"):
-            path = d.get(key) or info.get(key)
-            if path:
-                self.generated_files.add(os.path.abspath(path))
+        # 🔥 captura ABSOLUTAMENTE tudo que o ffmpeg gerar
+        possible_paths = []
 
-        main_file = d.get("filepath") or d.get("filename") or info.get("_filename")
-        main_file = os.path.abspath(main_file) if main_file else None
+        for key in (
+                "filepath",
+                "filename",
+                "_filename",
+        ):
+            val = d.get(key) or info.get(key)
+            if isinstance(val, str):
+                possible_paths.append(val)
 
-        if main_file:
-            self.collected_files.append(os.path.abspath(main_file))
+        # casos onde o yt-dlp devolve lista
+        requested = d.get("requested_downloads")
+        if isinstance(requested, list):
+            for item in requested:
+                path = item.get("filepath") or item.get("filename")
+                if path:
+                    possible_paths.append(path)
 
-        # ---- resto do código INTACTO ----
+        # registra tudo
+        for path in possible_paths:
+            abs_path = os.path.abspath(path)
+            self.generated_files.add(abs_path)
+
+        # -------- lógica de cancelamento após item --------
         if self.cancel_after_current:
             self.cancel_after_current = False
 
             keep = True
+            main_file = possible_paths[-1] if possible_paths else None
+
             if main_file and os.path.exists(main_file):
                 keep = messagebox.askyesno(
                     "Cancelar playlist",
                     f"Deseja manter o(s) arquivo(s) baixado(s)?\n\n{os.path.basename(main_file)}"
                 )
                 if not keep:
-                    self.cancelled_files.add(main_file)
+                    self.cancelled_files.add(os.path.abspath(main_file))
 
             self.keep_after_cancel = keep
             self.cancel_requested = True
+
             if self.log_hook:
                 self.log_hook(f"[CANCEL] Playlist cancelada — manter arquivo atual? {keep}")
 
@@ -389,7 +447,7 @@ class Downloader:
         """
 
         files_to_process = self._collect_files_for_normalize()
-        tmp_dir = os.path.join(self.output_path, "temp_normalize")
+        tmp_dir = self.tmp_dir
 
         # 🔥 CANCELADO + MANTER → apenas mover arquivos, sem normalizar
         if self.cancel_requested and self.keep_after_cancel:
@@ -432,12 +490,6 @@ class Downloader:
 
             tmp_file = os.path.abspath(tmp_file)
             final_file = os.path.abspath(final_file)
-
-            # 🔒 GARANTIA ABSOLUTA: só arquivos do tmp_normalize
-            if not tmp_file.startswith(tmp_dir + os.sep):
-                if self.log_hook:
-                    self.log_hook(f"[NORMALIZE] Ignorado (fora do tmp): {tmp_file}")
-                continue
 
             # ❌ arquivo não existe
             if not os.path.exists(tmp_file):
@@ -529,7 +581,7 @@ class Downloader:
 
         # 2️⃣ Remove arquivos intermediários e não permitidos
         for file_path in list(self.generated_files):
-            if not os.path.exists(file_path):
+            if file_path in self.blocked_files or not os.path.exists(file_path):
                 continue
 
             filename = os.path.basename(file_path)
@@ -670,43 +722,25 @@ class Downloader:
             self._save_state(paused=self.paused)
 
     def _collect_files_for_normalize(self):
-        """
-        Coleta arquivos na pasta tmp_normalize que devem ser normalizados.
-        Retorna uma lista de tuplas (tmp_file, final_file).
-        """
+        files = []
 
         if not self.tmp_dir or not os.path.exists(self.tmp_dir):
-            return []
+            return files
 
-        files_to_process = []
-
-        target_ext = f".{self.audio_format.lower()}"
-
-        for root, _, files in os.walk(self.tmp_dir):
-            for f in files:
-                ext = os.path.splitext(f)[1].lower()
-
-                # 🔒 só coleta o formato FINAL escolhido
-                if ext != target_ext:
+        for root, _, filenames in os.walk(self.tmp_dir):
+            for name in filenames:
+                if not name.lower().endswith(f".{self.audio_format.lower()}"):
                     continue
 
-                tmp_file = os.path.join(root, f)
+                tmp_file = os.path.join(root, name)
 
-                if self.allow_playlist:
-                    relative_path = os.path.relpath(tmp_file, self.tmp_dir)
-                    final_file = os.path.join(self.output_path, relative_path)
-                else:
-                    final_file = os.path.join(self.output_path, f)
+                # calcula path final REAL
+                rel = os.path.relpath(tmp_file, self.tmp_dir)
+                final_file = os.path.join(self.output_path, rel)
 
-                # 🔥 se já existe E já está normalizado → ignora
-                if os.path.exists(final_file) and is_normalized(final_file):
-                    if self.log_hook:
-                        self.log_hook(f"[NORMALIZE] Já normalizado, pulando: {final_file}")
-                    continue
+                files.append((tmp_file, final_file))
 
-                files_to_process.append((tmp_file, final_file))
-
-        return files_to_process
+        return files
 
     def _find_existing_file_by_id(self, info_dict):
         """
@@ -738,23 +772,76 @@ class Downloader:
         title = info.get("title", "Playlist")
         return sanitize_filename(title)
 
-    def _should_download(self, base_path):
+    def _should_download(self, base_path: str) -> bool:
         """
+        Decide se deve baixar o arquivo novamente.
+
         base_path = caminho FINAL sem extensão
-        Ex: C:/Downloads/Playlist/Musica [abc123]
+        Ex:
+          C:/Downloads/Musica [abc123]
+          C:/Downloads/Playlist/Musica [abc123]
         """
+
         audio_path = base_path + f".{self.audio_format.lower()}"
         video_path = base_path + ".mp4"
 
         audio_exists = os.path.exists(audio_path)
         video_exists = os.path.exists(video_path)
 
-        # 🔹 normalize NÃO influencia decisão de download
-        if not self.keep_original_file:
-            return not audio_exists
+        print("\n================ SHOULD DOWNLOAD ================")
+        print(f"BASE PATH           : {base_path}")
+        print(f"AUDIO PATH          : {audio_path}")
+        print(f"VIDEO PATH          : {video_path}")
+        print(f"AUDIO EXISTS        : {audio_exists}")
+        print(f"VIDEO EXISTS        : {video_exists}")
+        print(f"NORMALIZE ENABLED   : {self.normalize_enabled}")
+        print(f"KEEP ORIGINAL VIDEO : {self.keep_original_file}")
 
-        # 🔹 manter original → precisa dos dois
-        return not (audio_exists and video_exists)
+        # =====================================================
+        # 🔹 NORMALIZE ATIVADO
+        # =====================================================
+        if self.normalize_enabled:
+            print("MODE: NORMALIZE ON")
+
+            # 🔥 áudio não existe
+            if not audio_exists:
+                print("→ AUDIO DOES NOT EXIST → DOWNLOAD")
+                return True
+
+            # 🔥 áudio existe → verificar LUFS real
+            try:
+                normalized = is_normalized(audio_path)
+                print(f"LUFS CHECK RESULT   : {normalized}")
+            except Exception as e:
+                print(f"[ERROR] LUFS CHECK FAILED → {e}")
+                print("→ FORCE DOWNLOAD")
+                return True
+
+            if not normalized:
+                print("→ AUDIO EXISTS BUT NOT NORMALIZED → DOWNLOAD")
+                return True
+
+            # 🔥 manter vídeo exige mp4
+            if self.keep_original_file and not video_exists:
+                print("→ AUDIO NORMALIZED BUT VIDEO MISSING → DOWNLOAD")
+                return True
+
+            print("→ AUDIO EXISTS AND IS NORMALIZED → SKIP DOWNLOAD")
+            return False
+
+        # =====================================================
+        # 🔹 SEM NORMALIZE
+        # =====================================================
+        print("MODE: NORMALIZE OFF")
+
+        if not self.keep_original_file:
+            result = not audio_exists
+            print(f"NO NORMALIZE | NO KEEP → RETURN {result}")
+            return result
+
+        result = not (audio_exists and video_exists)
+        print(f"NO NORMALIZE | KEEP ORIGINAL → RETURN {result}")
+        return result
 
     def _cleanup_empty_dirs(self, root):
         """
@@ -772,3 +859,22 @@ class Downloader:
                         self.log_hook(f"[CLEANUP] Pasta vazia removida: {current}")
                 except OSError:
                     pass
+
+    def _resolve_final_path(self, path, info):
+        """
+        Converte qualquer path (tmp ou final) para o path FINAL real.
+        """
+
+        path = os.path.abspath(path)
+
+        # Se não usa normalize → já é final
+        if not self.normalize_enabled:
+            return path
+
+        # Se está no temp_normalize → converte para destino final
+        if self.tmp_dir and path.startswith(self.tmp_dir):
+            rel = os.path.relpath(path, self.tmp_dir)
+
+            return os.path.abspath(os.path.join(self.output_path, rel))
+
+        return path

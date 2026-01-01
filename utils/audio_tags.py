@@ -1,77 +1,99 @@
-# utils/audio_tags.py
-
-from mutagen.mp3 import MP3
-from mutagen.flac import FLAC
-from mutagen.wave import WAVE
-from mutagen.id3 import ID3NoHeaderError, TXXX
 from mutagen import File
+from mutagen.id3 import ID3, TXXX
+from mutagen.mp4 import MP4
+from mutagen.flac import FLAC
+from mutagen.oggopus import OggOpus
+from mutagen.oggvorbis import OggVorbis
+import os
+
+NORMALIZED_TAG = "X-NORMALIZED"
+NORMALIZED_VALUE = "true"
 
 
-NORMALIZED_TAG = "normalized_lufs"
+def mark_as_normalized(path: str, lufs: float | None = None) -> None:
+    if not path or not os.path.exists(path):
+        return
 
+    ext = os.path.splitext(path)[1].lower()
 
-def is_real_mp3(path: str) -> bool:
     try:
-        with open(path, "rb") as f:
-            header = f.read(3)
-            return header == b"ID3"
+        # =========================
+        # MP3 → ID3 TXXX
+        # =========================
+        if ext == ".mp3":
+            audio = ID3(path)
+            value = NORMALIZED_VALUE if lufs is None else f"{NORMALIZED_VALUE};lufs={lufs}"
+            audio.add(TXXX(encoding=3, desc=NORMALIZED_TAG, text=value))
+            audio.save(v2_version=3)
+            return
+
+        # =========================
+        # MP4 / M4A
+        # =========================
+        if ext in {".m4a", ".mp4"}:
+            audio = MP4(path)
+            value = NORMALIZED_VALUE if lufs is None else f"{NORMALIZED_VALUE};lufs={lufs}"
+            audio["----:com.apple.iTunes:NORMALIZED"] = [value.encode("utf-8")]
+            audio.save()
+            return
+
+        # =========================
+        # FLAC / OGG / OPUS
+        # =========================
+        audio = File(path)
+        if audio is None:
+            return
+
+        value = NORMALIZED_VALUE if lufs is None else f"{NORMALIZED_VALUE};lufs={lufs}"
+        audio["NORMALIZED"] = value
+        audio.save()
+
     except Exception:
+        pass
+
+
+def is_normalized(path: str) -> bool:
+    if not path or not os.path.exists(path):
         return False
 
+    ext = os.path.splitext(path)[1].lower()
 
-def mark_as_normalized(path, lufs):
-    audio = File(path, easy=True)
-
-    if not audio:
-        return
-
-    # WAV → não tem tags confiáveis → marca no info
-    if audio.mime and "audio/wav" in audio.mime:
-        audio.info.normalized = True
-        audio.info.normalized_lufs = lufs
-        return
-
-    # MP3
-    if audio.mime == ["audio/mpeg"]:
-        if audio.tags is None:
-            audio.add_tags()
-
-        audio.tags.add(
-            TXXX(encoding=3, desc=NORMALIZED_TAG, text=str(lufs))
-        )
-
-    else:
-        # FLAC / M4A / OGG
-        audio[NORMALIZED_TAG] = str(lufs)
-
-    audio.save()
-
-
-def is_normalized(path):
-    print(f"ESTE È O PATHHHHHHHHHHHHHHHHHHHHHHHH: {path}")
     try:
-        print("TRY ESTA SENDO CHAMADOOOOOOOOOOOOOOOOOOOOOOOOOO")
+        # =========================
+        # MP3
+        # =========================
+        if ext == ".mp3":
+            audio = ID3(path)
+            for tag in audio.getall("TXXX"):
+                if tag.desc == NORMALIZED_TAG and NORMALIZED_VALUE in tag.text[0].lower():
+                    return True
+            return False
+
+        # =========================
+        # MP4 / M4A
+        # =========================
+        if ext in {".m4a", ".mp4"}:
+            audio = MP4(path)
+            data = audio.get("----:com.apple.iTunes:NORMALIZED")
+            if not data:
+                return False
+            return NORMALIZED_VALUE in data[0].decode("utf-8").lower()
+
+        # =========================
+        # FLAC / OGG / OPUS
+        # =========================
         audio = File(path)
-        print(
-            f"O AUDIOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO È NORMALIZADO: {audio}")
-        if audio is None:
+        if not audio:
             return False
 
-        if audio.mime and "audio/wav" in audio.mime:
-            return getattr(audio.info, "normalized", False)
-
-        tags = audio.tags
-
-        if not tags:
+        value = audio.get("NORMALIZED")
+        if not value:
             return False
 
-        # MP3 (ID3 → TXXX)
-        if audio.mime == ["audio/mpeg"]:
-            return f"TXXX:{NORMALIZED_TAG}" in tags
+        if isinstance(value, list):
+            value = " ".join(value)
 
-        # FLAC / OGG / M4A
-        return NORMALIZED_TAG in tags
+        return NORMALIZED_VALUE in value.lower()
 
-    except Exception as e:
-        print(f"[is_normalized][ERROR] {path}: {e}")
+    except Exception:
         return False
