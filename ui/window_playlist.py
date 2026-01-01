@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 import os
+from utils import is_normalized
 
 def duration_format(duration_sec):
     if duration_sec >= 3600:
@@ -19,41 +20,75 @@ def duration_format(duration_sec):
     return duration_str
 
 
-def mark_already_downloaded(entries, playlist_dir, audio_format, keep_original):
+def mark_already_downloaded(
+    entries,
+    playlist_dir,
+    audio_format,
+    keep_original,
+    normalize_audio
+):
+    """
+    Marca entradas da playlist como já baixadas, levando em conta:
+    - existência de áudio
+    - existência de vídeo (se keep_original)
+    - normalização real por LUFS (se normalize_audio)
+    """
+
     if not os.path.isdir(playlist_dir):
         return
 
+    audio_ext = f".{audio_format.lower()}"
+
     for entry in entries:
-        video_id = entry.get("id")
         entry["_already_downloaded"] = False
 
+        video_id = entry.get("id")
         if not video_id:
             continue
 
-        base_found = False
         audio_found = False
         video_found = False
+        audio_path = None
 
+        # 🔍 Procura arquivos do vídeo na pasta da playlist
         for root, _, files in os.walk(playlist_dir):
             for file in files:
                 if f"[{video_id}]" not in file:
                     continue
 
-                if file.endswith(f".{audio_format.lower()}"):
-                    audio_found = True
+                lower = file.lower()
 
-                if file.endswith(".mp4"):
+                if lower.endswith(audio_ext):
+                    audio_found = True
+                    audio_path = os.path.join(root, file)
+
+                elif lower.endswith(".mp4"):
                     video_found = True
 
-            if audio_found or video_found:
+            # ✅ só sai quando tudo necessário foi encontrado
+            if audio_found and (not keep_original or video_found):
                 break
 
-        # 🔒 REGRA ÚNICA (igual ao core)
-        if not keep_original:
-            entry["_already_downloaded"] = audio_found
-        else:
-            entry["_already_downloaded"] = audio_found and video_found
+        # =========================
+        # 🔒 REGRA FINAL ÚNICA
+        # =========================
+        already = False
 
+        if normalize_audio:
+            # precisa existir áudio E estar normalizado
+            if audio_found and audio_path and is_normalized(audio_path):
+                if keep_original:
+                    already = video_found
+                else:
+                    already = True
+        else:
+            # normalização desligada
+            if keep_original:
+                already = audio_found and video_found
+            else:
+                already = audio_found
+
+        entry["_already_downloaded"] = already
 
 
 class PlaylistFrame(tk.Toplevel):

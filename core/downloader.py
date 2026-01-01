@@ -131,11 +131,13 @@ class Downloader:
 
                 # 🔥 build ydl_opts APONTANDO PARA TMP DA PLAYLIST
                 self._build_ydl_opts()
-                self.ydl_opts["outtmpl"] = os.path.join(
-                    self.tmp_playlist_dir,
-                    "%(title)s [%(id)s].%(ext)s"
-                )
 
+                # 🔥 SÓ sobrescreve outtmpl se NÃO estiver normalizando
+                if not self.normalize_enabled:
+                    self.ydl_opts["outtmpl"] = os.path.join(
+                        self.tmp_playlist_dir,
+                        "%(title)s [%(id)s].%(ext)s"
+                    )
                 selected_ids = None
                 if self.selected_entries:
                     selected_ids = {e["id"] for e in self.selected_entries if e.get("id")}
@@ -225,6 +227,7 @@ class Downloader:
                     self._normalize_files()
                     self._cleanup_files()
 
+
                 # 🔥 move TMP → pasta final
                 if self.tmp_playlist_dir and os.path.exists(self.tmp_playlist_dir):
                     os.makedirs(self.playlist_dir, exist_ok=True)
@@ -235,6 +238,7 @@ class Downloader:
                         )
                     shutil.rmtree(self.tmp_playlist_dir, ignore_errors=True)
 
+                self._cleanup_files()
                 self._cleanup_tmp_normalize()
                 self._clear_state()
                 self._download_active = False
@@ -254,6 +258,7 @@ class Downloader:
                 self._cleanup_files()
                 self._cleanup_tmp_normalize()
                 self._clear_state()
+                self._cleanup_empty_dirs(self.output_path)
                 self._download_active = False
                 return
 
@@ -372,7 +377,7 @@ class Downloader:
             path = d.get(key)
             if path:
                 self.generated_files.add(os.path.abspath(path))
-
+                print(f"ARQUIVOS GERADOSSS: {self.generated_files}")
         # Cancelamento imediato
         if self.cancel_requested and not self.cancel_after_current:
             tmp_file = d.get("tmpfilename")
@@ -461,7 +466,15 @@ class Downloader:
                 if not os.path.exists(tmp_file):
                     continue
 
+                # ✅ DESTINO CORRETO (playlist vs single)
+                if self.allow_playlist and self.playlist_dir:
+                    final_file = os.path.join(
+                        self.playlist_dir,
+                        os.path.basename(final_file)
+                    )
+
                 os.makedirs(os.path.dirname(final_file), exist_ok=True)
+
                 try:
                     shutil.move(tmp_file, final_file)
                     if self.file_finished_hook:
@@ -470,8 +483,6 @@ class Downloader:
                     pass
 
             return
-
-        print(f"OS ARQUIVOS PARA PROCESSARRRRRRRRRRRRR {files_to_process}")
 
         if not tmp_dir:
             return
@@ -490,6 +501,13 @@ class Downloader:
 
             tmp_file = os.path.abspath(tmp_file)
             final_file = os.path.abspath(final_file)
+
+            # ✅ DESTINO CORRETO (🔥 AQUI É O FIX PRINCIPAL 🔥)
+            if self.allow_playlist and self.playlist_dir:
+                final_file = os.path.join(
+                    self.playlist_dir,
+                    os.path.basename(final_file)
+                )
 
             # ❌ arquivo não existe
             if not os.path.exists(tmp_file):
@@ -513,18 +531,19 @@ class Downloader:
                     pass
                 continue
 
-            # ❌ extensão errada (normaliza SOMENTE o formato final)
+            # ❌ extensão errada
             if not tmp_file.lower().endswith(f".{self.audio_format.lower()}"):
                 if self.log_hook:
                     self.log_hook(f"[NORMALIZE] Ignorado (extensão): {tmp_file}")
 
+                os.makedirs(os.path.dirname(final_file), exist_ok=True)
                 shutil.move(tmp_file, final_file)
                 continue
 
+            # ❌ já normalizado
             if is_normalized(final_file):
                 if self.log_hook:
                     self.log_hook(f"[NORMALIZE] Ignorado (já normalizado): {final_file}")
-
                 continue
 
             if self.log_hook:
@@ -533,17 +552,13 @@ class Downloader:
                 )
 
             try:
-                print(f"ESTE È O TEMP FILE: {tmp_file}")
-                print(f"ESTE È O TEMP final FILE: {final_file}")
                 # 🎧 NORMALIZA
                 Audio(tmp_file).normalize(target_lufs=-14.0)
 
                 # 📁 garante pasta final
                 os.makedirs(os.path.dirname(final_file), exist_ok=True)
-                print(f"ESTE E O TEMPPPPPP FILE: {tmp_file}")
 
-                print(f"ESTE E O FINALLLLL FILE: {final_file}")
-                # 🚚 move para destino final
+                # 🚚 move para destino final CORRETO
                 shutil.move(tmp_file, final_file)
 
                 self.generated_files.add(os.path.abspath(final_file))
@@ -560,7 +575,6 @@ class Downloader:
             except Exception as e:
                 if self.error_hook:
                     self.error_hook(f"[NORMALIZE][ERROR] {tmp_file}: {e}")
-                    print(f"[NORMALIZE][ERROR] {tmp_file}: {e}")
 
         if self.log_hook:
             self.log_hook("[NORMALIZE] Finalizado")
@@ -568,26 +582,58 @@ class Downloader:
     def _cleanup_files(self):
         """
         Remove apenas arquivos gerados nesta execução.
-        NUNCA remove pastas inteiras de playlist.
+        .part é SEMPRE removido, mesmo fora de generated_files.
         """
 
         allowed_exts = {f".{self.audio_format.lower()}"}
-
         if self.keep_original_file:
             allowed_exts.add(".mp4")
 
-        # 1️⃣ Remove arquivos explicitamente cancelados
+        # =========================
+        # 0️⃣ LIMPEZA GLOBAL DE .part
+        # =========================
+        search_dirs = set(filter(None, [
+            self.output_path,
+            self.tmp_dir,
+            self.tmp_playlist_dir,
+        ]))
+
+        for base_dir in search_dirs:
+            if not os.path.isdir(base_dir):
+                continue
+
+            for root, _, files in os.walk(base_dir):
+                for file in files:
+                    if file.endswith(".part"):
+                        part_path = os.path.join(root, file)
+                        try:
+                            os.remove(part_path)
+                            if self.log_hook:
+                                self.log_hook(f"[CLEANUP] .part removido: {part_path}")
+                        except OSError as e:
+                            if self.log_hook:
+                                self.log_hook(f"[ERROR] Falha ao remover .part: {part_path} — {e}")
+
+        # =========================
+        # 1️⃣ Remove arquivos cancelados
+        # =========================
         self._delete_cancelled_files()
 
-        # 2️⃣ Remove arquivos intermediários e não permitidos
+        # =========================
+        # 2️⃣ Limpeza baseada em estado
+        # =========================
         for file_path in list(self.generated_files):
-            if file_path in self.blocked_files or not os.path.exists(file_path):
+            if not file_path or not os.path.exists(file_path):
+                self.generated_files.discard(file_path)
+                continue
+
+            if file_path in self.blocked_files:
                 continue
 
             filename = os.path.basename(file_path)
             ext = os.path.splitext(filename)[1].lower()
 
-            # 🔥 SEMPRE remover intermediários do yt-dlp
+            # 🔥 intermediários yt-dlp
             if YTDLP_INTERMEDIATE_RE.search(filename):
                 try:
                     os.remove(file_path)
@@ -596,9 +642,10 @@ class Downloader:
                 except OSError as e:
                     if self.log_hook:
                         self.log_hook(f"[ERROR] Falha ao remover intermediário: {file_path} — {e}")
+                self.generated_files.discard(file_path)
                 continue
 
-            # 🔥 Remove arquivos fora das extensões permitidas
+            # 🔥 extensões não permitidas
             if ext not in allowed_exts:
                 try:
                     os.remove(file_path)
@@ -607,7 +654,7 @@ class Downloader:
                 except OSError as e:
                     if self.log_hook:
                         self.log_hook(f"[ERROR] Falha ao remover arquivo: {file_path} — {e}")
-
+                self.generated_files.discard(file_path)
 
     def _delete_cancelled_files(self):
         for file_path in list(self.cancelled_files):

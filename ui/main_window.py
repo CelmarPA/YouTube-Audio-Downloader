@@ -284,7 +284,8 @@ class AppWindow:
                         entries,
                         playlist_dir,
                         self.format_var.get(),
-                        self.keep_original_var.get()
+                        self.keep_original_var.get(),
+                        self.normalize_var.get()
                     )
 
                     playlist_window = PlaylistFrame(self.root, playlist_title, entries)
