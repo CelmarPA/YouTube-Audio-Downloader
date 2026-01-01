@@ -19,6 +19,9 @@ YTDLP_INTERMEDIATE_RE = re.compile(
     re.IGNORECASE
 )
 
+# Extensões que consideramos como arquivos principais
+MAIN_EXTENSIONS = {".mp3", ".wav", ".flac", ".mp4", ".m4a"}
+
 
 def sanitize_filename(name: str) -> str:
     if not name:
@@ -397,7 +400,75 @@ class Downloader:
             if path:
                 self.generated_files.add(os.path.abspath(path))
                 print(f"ARQUIVOS GERADOSSS: {self.generated_files}")
-        # Cancelamento imediato
+
+        # ===============================
+        # 1️⃣ Progresso bonito (somente arquivos principais)
+        # ===============================
+        MAIN_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".opus", ".mp4", ".mkv", ".webm"}
+        filename = d.get("filename") or d.get("tmpfilename")
+        ext = os.path.splitext(filename or "")[1].lower()
+        is_main_file = ext in MAIN_EXTS
+
+        if is_main_file and filename and hasattr(self, "audio_format") and self.audio_format:
+            # gera display bonito para log (não altera arquivos)
+            display_filename = os.path.basename(filename)
+            display_filename = re.sub(r'\.f\d+\.', '.', display_filename)  # remove intermediário
+            display_filename = os.path.splitext(display_filename)[0]  # remove extensão original
+            display_filename = f"{display_filename}.{self.audio_format.lower()}"
+
+            status = d.get("status")
+            playlist_index = d.get("playlist_index")
+            playlist_count = d.get("playlist_count")
+
+            if status == "downloading":
+                def safe_float(val, default=0.0):
+                    try:
+                        return float(val)
+                    except (TypeError, ValueError):
+                        return default
+
+                downloaded_bytes = safe_float(d.get("downloaded_bytes"))
+                total_bytes = safe_float(d.get("total_bytes") or d.get("total_bytes_estimate"), 1)
+                percent = (downloaded_bytes / total_bytes * 100) if total_bytes else 0.0
+                speed = safe_float(d.get("speed"))
+                eta = int(d.get("eta") or 0)
+
+                downloaded_mb = downloaded_bytes / (1024 * 1024)
+                total_mb = total_bytes / (1024 * 1024)
+
+                status_text = f"{percent:5.1f}% — {downloaded_mb:.2f}/{total_mb:.2f} MB — " \
+                              f"{speed / 1024:.2f} KB/s — ETA {eta}s"
+
+                if playlist_index and playlist_count:
+                    status_text = f"Item {playlist_index}/{playlist_count} — {status_text}"
+
+                if downloaded_bytes == 0 and self.log_hook:
+                    self.log_hook(f"[DOWNLOAD] Iniciando: {display_filename}")
+
+                if self.log_hook:
+                    self.log_hook(f"[DOWNLOAD] {status_text}")
+
+                if self.progress_hook:
+                    self.progress_hook(percent, playlist_index, playlist_count, status_text)
+
+            elif status == "finished":
+                abs_path = os.path.abspath(filename)
+                self.generated_files.add(abs_path)
+
+                if self.log_hook:
+                    self.log_hook(f"[DONE] {display_filename}")
+
+                if self.progress_hook:
+                    self.progress_hook(
+                        100.0,
+                        d.get("playlist_index"),
+                        d.get("playlist_count"),
+                        f"[DONE] {display_filename}"
+                    )
+
+        # ===============================
+        # 2️⃣ Cancelamento imediato
+        # ===============================
         if self.cancel_requested and not self.cancel_after_current:
             tmp_file = d.get("tmpfilename")
             if tmp_file and os.path.exists(tmp_file):
@@ -994,3 +1065,27 @@ class Downloader:
             return os.path.abspath(os.path.join(self.output_path, rel))
 
         return path
+
+    def _format_bytes(self, bytes_num):
+        # Formata bytes em KB/MG/GB
+
+        for unit in ["B", "KB", "MB", "GB"]:
+            if bytes_num < 1024:
+                return f"{bytes_num:.1f}{unit}"
+
+            bytes_num /= 1024.0
+
+        return f"{bytes_num:.1f} TB"
+
+    def _format_eta(self, seconds):
+        # formata tempo restante
+        if not seconds:
+            return "00:00"
+
+        m, s = divmod(int(seconds), 60)
+        h, m = divmod(m, 60)
+
+        if h > 0:
+            return f"{h:02}:{m:02}:{s:02}"
+
+        return f"{m:02}:{s:02}"
