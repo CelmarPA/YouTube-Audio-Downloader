@@ -225,7 +225,8 @@ class Downloader:
 
                 if self.normalize_enabled:
                     self._normalize_files()
-                    self._cleanup_files()
+
+                self._cleanup_files()
 
 
                 # 🔥 move TMP → pasta final
@@ -237,6 +238,24 @@ class Downloader:
                             os.path.join(self.playlist_dir, f)
                         )
                     shutil.rmtree(self.tmp_playlist_dir, ignore_errors=True)
+
+                # 🔥 SINGLE + NORMALIZE → mover tudo do temp_normalize
+                if (
+                        self.normalize_enabled
+                        and not self.allow_playlist
+                        and self.tmp_dir
+                        and os.path.exists(self.tmp_dir)
+                ):
+                    for f in os.listdir(self.tmp_dir):
+                        src = os.path.join(self.tmp_dir, f)
+                        dst = os.path.join(self.output_path, f)
+
+                        if os.path.exists(dst):
+                            continue
+
+                        shutil.move(src, dst)
+
+                    shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
                 self._cleanup_files()
                 self._cleanup_tmp_normalize()
@@ -449,6 +468,7 @@ class Downloader:
         """
         Normaliza arquivos de áudio para target LUFS (-14 dB)
         SOMENTE arquivos gerados no tmp_normalize.
+        Mantém vídeos originais quando keep_original_file=True.
         """
 
         files_to_process = self._collect_files_for_normalize()
@@ -482,6 +502,9 @@ class Downloader:
                 except Exception:
                     pass
 
+            # 🔥 mover vídeos originais, se necessário
+            if self.keep_original_file:
+                self._move_videos_from_tmp()
             return
 
         if not tmp_dir:
@@ -495,6 +518,9 @@ class Downloader:
                 self.log_hook("[NORMALIZE] Nenhum arquivo para normalizar.")
             return
 
+        # ===============================
+        # 🔹 NORMALIZA ÁUDIO
+        # ===============================
         for index, (tmp_file, final_file) in enumerate(files_to_process, start=1):
             if not tmp_file or not final_file:
                 continue
@@ -502,7 +528,7 @@ class Downloader:
             tmp_file = os.path.abspath(tmp_file)
             final_file = os.path.abspath(final_file)
 
-            # ✅ DESTINO CORRETO (🔥 AQUI É O FIX PRINCIPAL 🔥)
+            # ✅ DESTINO CORRETO (playlist vs single)
             if self.allow_playlist and self.playlist_dir:
                 final_file = os.path.join(
                     self.playlist_dir,
@@ -531,7 +557,7 @@ class Downloader:
                     pass
                 continue
 
-            # ❌ extensão errada
+            # ❌ extensão errada (não é áudio)
             if not tmp_file.lower().endswith(f".{self.audio_format.lower()}"):
                 if self.log_hook:
                     self.log_hook(f"[NORMALIZE] Ignorado (extensão): {tmp_file}")
@@ -576,8 +602,51 @@ class Downloader:
                 if self.error_hook:
                     self.error_hook(f"[NORMALIZE][ERROR] {tmp_file}: {e}")
 
+        # ===============================
+        # 🔹 MOVER VÍDEOS ORIGINAIS
+        # ===============================
+        if self.keep_original_file:
+            self._move_videos_from_tmp()
+
         if self.log_hook:
             self.log_hook("[NORMALIZE] Finalizado")
+
+    def _move_videos_from_tmp(self):
+        """
+        Move vídeos originais da TMP (yt-dlp) para pasta final
+        Mantém single e playlist
+        """
+        search_dirs = [self.tmp_dir, self.tmp_playlist_dir]
+
+        for base_dir in filter(None, search_dirs):
+            if not os.path.exists(base_dir):
+                continue
+
+            for root, _, files in os.walk(base_dir):
+                for file in files:
+                    if not file.lower().endswith(".mp4"):
+                        continue
+
+                    tmp_video = os.path.join(root, file)
+                    final_video = os.path.join(
+                        self.playlist_dir if self.playlist_dir else self.output_path,
+                        file
+                    )
+
+                    # evita sobrescrever
+                    if os.path.exists(final_video):
+                        continue
+
+                    os.makedirs(os.path.dirname(final_video), exist_ok=True)
+
+                    try:
+                        shutil.move(tmp_video, final_video)
+                        self.generated_files.add(os.path.abspath(final_video))
+                        if self.log_hook:
+                            self.log_hook(f"[VIDEO] Mantido: {final_video}")
+                    except Exception as e:
+                        if self.error_hook:
+                            self.error_hook(f"[VIDEO][ERROR] {tmp_video}: {e}")
 
     def _cleanup_files(self):
         """
