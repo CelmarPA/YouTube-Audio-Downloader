@@ -1,13 +1,49 @@
+# util/audio_tags.py
+import os
+import json
+import subprocess
+
 from mutagen import File
 from mutagen.id3 import ID3, TXXX
 from mutagen.mp4 import MP4
 from mutagen.flac import FLAC
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
-import os
+
+from utils.paths import get_ffmpeg_path
+
 
 NORMALIZED_TAG = "X-NORMALIZED"
 NORMALIZED_VALUE = "true"
+TARGET_LUFS = -14.0
+LUFS_TOLERANCE = 1.0
+
+
+def get_lufs(path: str) -> float | None:
+    if not os.path.exists(path):
+        return None
+
+    cmd = [
+        "ffmpeg",
+        "-i", path,
+        "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
+        "-f", "null",
+        "-"
+    ]
+
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+
+    for line in result.stderr.splitlines():
+        if line.strip().startswith("{") and '"input_i"' in line:
+            data = json.loads(line)
+            return float(data["input_i"])
+
+    return None
 
 
 def mark_as_normalized(path: str, lufs: float | None = None) -> None:
@@ -48,52 +84,61 @@ def mark_as_normalized(path: str, lufs: float | None = None) -> None:
         audio["NORMALIZED"] = value
         audio.save()
 
-    except Exception:
+    except Exception as e:
+        _e = e
         pass
 
 
 def is_normalized(path: str) -> bool:
-    if not path or not os.path.exists(path):
+    print("\n========== IS_NORMALIZED ==========")
+    print(f"AUDIO PATH: {path}")
+
+    if not os.path.exists(path):
+        print("❌ FILE DOES NOT EXIST")
         return False
 
-    ext = os.path.splitext(path)[1].lower()
+    ffmpeg = get_ffmpeg_path()
+    print(f"FFMPEG PATH: {ffmpeg}")
 
-    try:
-        # =========================
-        # MP3
-        # =========================
-        if ext == ".mp3":
-            audio = ID3(path)
-            for tag in audio.getall("TXXX"):
-                if tag.desc == NORMALIZED_TAG and NORMALIZED_VALUE in tag.text[0].lower():
-                    return True
-            return False
+    if not ffmpeg or not os.path.exists(ffmpeg):
+        raise FileNotFoundError("FFmpeg não encontrado")
 
-        # =========================
-        # MP4 / M4A
-        # =========================
-        if ext in {".m4a", ".mp4"}:
-            audio = MP4(path)
-            data = audio.get("----:com.apple.iTunes:NORMALIZED")
-            if not data:
-                return False
-            return NORMALIZED_VALUE in data[0].decode("utf-8").lower()
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-nostats",
+        "-i", path,
+        "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
+        "-f", "null",
+        "-"
+    ]
 
-        # =========================
-        # FLAC / OGG / OPUS
-        # =========================
-        audio = File(path)
-        if not audio:
-            return False
+    print("RUNNING FFMPEG COMMAND:")
+    print(" ".join(cmd))
 
-        value = audio.get("NORMALIZED")
-        if not value:
-            return False
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        creationflags=subprocess.CREATE_NO_WINDOW
+    )
 
-        if isinstance(value, list):
-            value = " ".join(value)
+    stderr = result.stderr
 
-        return NORMALIZED_VALUE in value.lower()
+    # extrai JSON do loudnorm
+    start = stderr.find("{")
+    end = stderr.rfind("}")
 
-    except Exception:
-        return False
+    if start == -1 or end == -1:
+        raise RuntimeError("Não foi possível extrair loudnorm JSON")
+
+    data = json.loads(stderr[start:end + 1])
+
+    input_lufs = float(data["input_i"])
+    print(f"MEASURED LUFS: {input_lufs}")
+
+    normalized = abs(input_lufs - TARGET_LUFS) <= LUFS_TOLERANCE
+    print(f"IS NORMALIZED? {normalized}")
+
+    return normalized

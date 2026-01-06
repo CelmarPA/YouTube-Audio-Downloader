@@ -1,6 +1,9 @@
-from ui.main_window import AppWindow
+# main.py
+
+from ui  import AppWindow
 
 
 if __name__ == '__main__':
-    AppWindow()
+    app: AppWindow = AppWindow()
 
+    app.mainloop()

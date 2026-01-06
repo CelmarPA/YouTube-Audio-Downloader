@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
+""""""
 
 def get_default_downloads():
     return str(Path.home() / "Downloads")
@@ -55,7 +56,3 @@ def open_download_folder(path):
     except Exception as e:
         messagebox.showerror("Erro", f"Não foi possível abrir a pasta:\n{e}")
         print(f"Não foi possível abrir a pasta:\n{e}")
-
-
-
-

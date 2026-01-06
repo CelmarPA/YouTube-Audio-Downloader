@@ -50,4 +50,3 @@ class Audio:
 
         except Exception as e:
             raise RuntimeError(f"Erro inesperado ao normalizar áudio: {e}")
-
