@@ -2,11 +2,12 @@
 
 import os
 import threading
+import tkinter as tk
 import yt_dlp
 import yt_dlp.utils
 
 from tkinter import messagebox
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import Callable, Optional, TYPE_CHECKING, List
 
 from core.downloader import Downloader
 from ui.playlist_frame import PlaylistFrame
@@ -85,7 +86,6 @@ class DownloadController:
         # Downloader nor ready yet → defer pause
         if not self.downloader:
             self.pending_pause: bool = True
-            print("PAUSE DEFERRED (DOWNLOAD NOT READY YET")
 
             return
 
@@ -132,7 +132,28 @@ class DownloadController:
             # ================================
             # SAFE CHECK — no playlist expansion
             # ================================
-            basic_info: dict = self.extract_basic_info(url)
+            basic_info = self.extract_basic_info(url)
+
+            if not isinstance(basic_info, dict):
+                basic_info = {}
+
+            title = (basic_info.get("title") or "").lower()
+
+            if title in ("[private video]", "[restricted video]"):
+                basic_info["__restricted__"] = "private"
+
+            elif "age" in (basic_info.get("availability") or ""):
+                basic_info["__restricted__"] = "age"
+
+            if basic_info.get("__restricted__") and not options.get("use_cookies"):
+                self._log(self.app_window.i18n.t("download_controller.log_restricted"), level="AUTH")
+
+                self._emit_error(
+                    self.app_window.i18n.t("download_controller.error_restricted_msg"),
+                    title=self.app_window.i18n.t("download_controller.error_restricted_title"),
+                    level="AUTH"
+                )
+                return
 
             if options.get("allow_playlist") and self.is_youtube_mix(basic_info):
                 self.app_window.after(0, self.app_window.show_mix_warning)
@@ -150,6 +171,7 @@ class DownloadController:
                 output_path=options.get("output_path", ".downloads"),
                 audio_format=options.get("audio_format", "mp3"),
                 quality=options.get("audio_quality", "192"),
+                resolution=options.get("video_resolution", "Auto"),
                 allow_playlist=options.get("allow_playlist", False),
                 keep_original_file=options.get("keep_original", False),
                 normalize_enabled=options.get("normalize_enabled", False),
@@ -158,7 +180,9 @@ class DownloadController:
                 file_finished_hook=options.get("file_finished_hook", None),
                 error_hook=options.get("error_hook", None),
                 log_hook=options.get("log_hook", None),
-                state_file=options.get("state_file", None)
+                confirm_keep_hook=self.confirm_keep_current_file,
+                state_file=options.get("state_file", None),
+                language=options.get("language", "en-US"),
             )
 
             # ================================
@@ -183,30 +207,62 @@ class DownloadController:
                 self.paused = False
                 self.app_window.after(0, self.app_window.set_playlist_selection_state)
 
-                # Extract full playlist info (with auth retry)
-                info = self.extract_info_with_auth_retry(url)
+                self._set_status(self.app_window.i18n.t("download_controller.status_loading_playlist"))
 
-                if not info:
-                    self.app_window.after(0, self.app_window.notify_auth_failed)
+                # Extract full playlist info (flat + fast)
+                info: dict = self.extract_playlist_flat(url)
 
+                if not isinstance(info, dict) or not info.get("entries"):
+                    self._emit_error(
+                        self.app_window.i18n.t("download_controller.error_not_info"),
+                        title=self.app_window.i18n.t("download_controller.error_not_info_title"),
+                        level="AUTH"
+                    )
                     return
+                entries: List[dict] = []
 
-                # 🔥 Remove private/unavailable videos
-                entries = [
-                    e for e in info.get("entries", [])
-                    if e and e.get("id")
-                ]
+                for e in info.get("entries", []):
+                    if not e or not e.get("id"):
+                        continue
+
+                    restricted = None
+
+                    title = (e.get("title") or "").lower()
+                    duration = e.get("duration")
+
+                    # 🔒 Private video (flat stub)
+                    if title == "[private video]":
+                        restricted = "private"
+
+                    # 🔞 Age restricted (yt-dlp usually keeps title normal)
+                    elif e.get("availability") == "age_restricted":
+                        restricted = "age"
+
+                    # 🔞 fallback: duration missing + not playable
+                    elif duration is None and not e.get("is_playable", True):
+                        restricted = "age"
+
+                    if restricted:
+                        e["__restricted__"] = restricted
+
+                    entries.append(e)
+
+                    self._set_status(f"📋 {len(entries)} {self.app_window.i18n.t('download_controller.status_entries')}")
 
                 if not entries:
-                    self._log("Playlist has no downloadable videos", level="ERROR")
+                    self._log(self.app_window.i18n.t("download_controller.log_not_entries"), level="ERROR")
+
                     return
 
                 playlist_title: str = info.get("title", "Playlist")
+                self.downloader.playlist_title = playlist_title
 
+                # Restore saved selection
                 if self.app_window.saved_selection:
                     saved_ids = {
                         e["id"] for e in self.app_window.saved_selection if "id" in e
                     }
+
                     for entry in entries:
                         entry["__preselected__"] = entry["id"] in saved_ids
 
@@ -230,24 +286,25 @@ class DownloadController:
                     theme=self.app_window.theme
                 )
                 self.app_window.wait_window(playlist_window)
-
                 self.app_window.after(0, self.app_window.set_playlist_selection_state)
 
                 selected_entries = playlist_window.selected
 
-                if selected_entries is None or len(selected_entries) == 0:
-                    self._log("No videos selected, download canceled", level="CANCEL")
+                if not selected_entries:
+                    self._log(self.app_window.i18n.t("download_controller.log_not_selected_entries"), level="CANCEL")
 
                     return
 
-                # Only the selected items are available for download.
+                # 🔥 downloader will download only these
                 self.downloader.selected_entries = selected_entries
+                self.downloader.is_manual_selection = True
+                self.downloader.url = None  # 🔥
 
             # ================================
             # DEFERRED CANCEL — abort before start
             # ================================
             if self.pending_cancel:
-                self._log("Download aborted before start", level="CANCEL")
+                self._log(self.app_window.i18n.t("download_controller.log_pending_cancel"), level="CANCEL")
 
                 self.pending_cancel = False
                 self.pending_cancel_after_current = False
@@ -263,8 +320,8 @@ class DownloadController:
             self.app_window.after(0, self.app_window.set_downloading_state)
 
             # 🔥 Save state immediately (fix silent close bug)
-            if self.downloader is not None and self.downloader.STATE_FILE:
-                self.downloader.save_state()
+            if self.downloader and self.downloader.STATE_FILE:
+                self.downloader.save_state(paused=True)
 
             # Starts the download
             try:
@@ -277,8 +334,7 @@ class DownloadController:
                     self._handle_auth_required(msg)
 
                 else:
-                    if self.error_hook:
-                        self.error_hook(msg)
+                    self._error(msg)
 
         finally:
             self.pending_pause: bool = False
@@ -310,11 +366,58 @@ class DownloadController:
         if self.log_hook:
             self.log_hook(entry)
 
+    def  _set_status(self, message: str) -> None:
+        """
+        Internal status update helper.
+
+        :param message: The status message.
+        :type message: str
+        """
+
+        if self.status_hook:
+            self.status_hook(message)
+
+    def _error(self, message: str) -> None:
+        """
+
+        :param message:
+        :return:
+        """
+
+        if self.error_hook:
+            self.error_hook(message)
+
+    def _emit_error(
+        self,
+        message: str,
+        title: str = "Download error",
+        level: str = "ERROR",
+        show_dialog: bool = True
+    ) -> None:
+        """
+        Thread-safe error emitter.
+        Shows UI dialog, logs error and notifies hooks.
+        """
+
+        self._log(message, level=level)
+        self._error(message)
+
+        # UI dialog (sempre no main thread)
+        if show_dialog:
+            self.app_window.after(
+                0,
+                lambda: messagebox.showerror(title, message)
+            )
+
     @staticmethod
     def is_youtube_mix(info: dict) -> bool:
         """
         Determines whether the provided yt-dlp info represents a YouTube MIX.
         """
+
+        if not info:
+            return False
+
         playlist_id: str = info.get("playlist_id", "") or ""
         webpage_url: str = info.get("webpage_url", "") or ""
 
@@ -326,32 +429,6 @@ class DownloadController:
                         and "list=RD" in webpage_url
                 )
         )
-
-    @staticmethod
-    def extract_basic_info(url: str) -> dict:
-        """
-        Extracts minimal YouTube metadata without resolving playlist entries.
-
-        This method is safe for MIX and large playlists, as it avoids
-        full playlist expansion.
-
-        :param url: YouTube video or playlist URL
-        :return: Minimal yt-dlp info dictionary
-        """
-        ydl_opts: dict = {
-            "quiet": True,
-            "skip_download": True,
-            "extract_flat": True,
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info: dict = ydl.extract_info(url, download=False)
-
-            # yt-dlp may return a URL stub first
-            if info.get("_type") == "url":
-                info = ydl.extract_info(info["url"], download=False)
-
-        return info
 
     def _handle_auth_required(self, error_msg: str):
         """Handles videos that require authentication."""
@@ -367,10 +444,8 @@ class DownloadController:
             return
 
         self.downloader.auth_retry_attempted = True
-        self.downloader.set_browser_cookies("default")
 
-        if self.status_hook:
-            self.status_hook("🔐 Restricted video, retrying with browser cookies...")
+        self._set_status(self.app_window.i18n.t("download_controller.status_restricted"))
 
         self.downloader.retry_current_item()
 
@@ -378,48 +453,107 @@ class DownloadController:
         """Alerts when video is restricted."""
 
         messagebox.showwarning(
-            "Restricted video skipped",
-            "A private or age-restricted video could not be downloaded and was skipped."
+            self.app_window.i18n.t("download_controller.handle_auth_failed_title"),
+            self.app_window.i18n.t("download_controller.handle_auth_failed")
         )
 
         self.downloader.skip_current_item()
 
-    def extract_info_with_auth_retry(self, url: str) -> Optional[dict]:
+    def extract_basic_info(self, url: str) -> dict:
         """
-        Extracts video/playlist info.
-        If authentication is required, retries automatically using browser cookies.
-
-        :param url: YouTube video or playlist URL
-        :type url: str
+        SAFE pre-extraction.
+        Never raises on private / age / auth-required videos.
         """
 
         ydl_opts = {
             "quiet": True,
             "skip_download": True,
+            "extract_flat": True,
             "ignoreerrors": True,
-            "extract_flat": False,
+            "nocheckcertificate": True,
         }
 
-        # 1️⃣ First attempt (no cookies)
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                return ydl.extract_info(url, download=False)
+                info = ydl.extract_info(url, download=False)
 
-        except (yt_dlp.utils.ExtractorError, yt_dlp.utils.DownloadError) as e:
-            msg = str(e).lower()
+                # Resolve URL stub safely
+                if isinstance(info, dict) and info.get("_type") == "url":
+                    return info
 
-            if not any(k in msg for k in ("private", "sign in", "age", "cookies")):
-                raise   # not auth-related → real error
+                return info or {}
 
-        # 2️⃣ Retry with browser cookies
-        try:
-            ydl_opts["cookiesfrombrowser"] = ("default",)
+        except Exception as e:
+            self._error(str(e))
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                if self.log_hook:
-                    self._log("Retrying extraction with browser cookies", level="AUTH")
+            # 🔥 ABSOLUTE SAFETY
+            return {
+                "_type": "url",
+                "title": "[Restricted video]",
+                "__restricted__": "unknown",
+            }
 
-                    return ydl.extract_info(url, download=False)
+    @staticmethod
+    def extract_playlist_flat(url: str) -> dict:
+        """
+        Fast playlist extraction WITH duration when available.
+        No auth, no download, no re-expansion.
 
-        except (yt_dlp.utils.ExtractorError, yt_dlp.utils.DownloadError) as e:
-            return None  # Definitive failure
+        :param url: url: YouTube video or playlist URL
+        :type url: str
+
+        :return: Dict with playlist metadata
+        :rtype: dict
+        """
+
+        ydl_opts: dict = {
+            "quiet": True,
+            "skip_download": True,
+            "extract_flat": "in_playlist",
+            "dump_single_json": True,
+            "forcejson": True,
+            "ignoreerrors": True,
+            "playlist_items": None
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info: dict = ydl.extract_info(url, download=False)
+
+            if info and info.get("_type") == "url":
+                info: dict = ydl.extract_info(info["url"], download=False)
+
+            return info or {}
+
+    def confirm_keep_current_file(self, file_path: str) -> bool:
+        """
+        Thread-save confirmation dialog.
+        Called by Downloader (worker thread), executed on Tk main loop.
+
+        :param file_path: The path to the file.
+        :type file_path: str
+
+        :return: True if user want to keep the current file, False otherwise.
+        :rtype: bool
+        """
+
+        result: dict = {"keep": True}    # default safe value
+        done: tk.BooleanVar = tk.BooleanVar(value=False)
+
+        def ask_user():
+            filename = os.path.basename(file_path)
+
+            keep: bool = messagebox.askyesno(
+                self.app_window.i18n.t("download_controller.ask_user_title"),
+                f"{self.app_window.i18n.t('download_controller.ask_user')}{filename}"
+            )
+
+            result["keep"] = keep
+            done.set(True)
+
+        # 🔥 Run dialog on UI thread
+        self.app_window.after(0, ask_user)
+
+        # 🔥 Block ONLY this worker thread (UI keeps running)
+        self.app_window.wait_variable(done)
+
+        return result["keep"]

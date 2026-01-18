@@ -10,17 +10,22 @@ integration, and logging controls.
 """
 
 import os
+import sys
 import tkinter as tk
-import webbrowser
+import subprocess
 
 from threading import Thread
 from tkinter import ttk, messagebox
-from typing import Callable, Dict, Optional
+from typing import Callable, Optional
 
 from controller.download_controller import DownloadController
 from ui.playlist_frame import PlaylistFrame
 from ui.tooltip import Tooltip
 from widgets.folders import open_download_folder, download_dir, choose_folder
+from i18n.manager import I18nManager
+from ui.help_window import HelpWindow
+from utils.paths import resource_path
+from utils.app_config import load_config, save_config
 
 
 DOWNLOAD_DIR: str = os.path.abspath(download_dir)
@@ -33,6 +38,17 @@ class AppWindow(tk.Tk):
 
     def __init__(self) -> None:
         super().__init__()
+
+        self.config: dict = load_config()
+
+        self.language: str = self.config.get("language", "en-US")
+
+        self.i18n: I18nManager = I18nManager(language=self.language)
+
+        self.flag_icons = {
+            "pt-BR": tk.PhotoImage(file=resource_path(r"assets\br_icon.png")),
+            "en-US": tk.PhotoImage(file=resource_path(r"assets\us_icon.png")),
+        }
 
         self.controller: DownloadController = DownloadController(self)
         self.playlist_frame: PlaylistFrame = PlaylistFrame
@@ -49,8 +65,8 @@ class AppWindow(tk.Tk):
         self.normalize_var: tk.BooleanVar = tk.BooleanVar(value=False)
 
         self.title('YouTube Audio Downloader')
-        self.geometry("700x500")
-        self.minsize(650, 450)
+        self.geometry("850x500")
+        self.minsize(850, 500)
 
         try:
             self.iconbitmap("assets/icon.ico")
@@ -58,47 +74,27 @@ class AppWindow(tk.Tk):
             _e: str = str(e)
             pass
 
-        self.theme: str = "light"
-        self.language: str = "en-US"
+        self.theme: str = self.config.get("theme", "light")
 
         self.pause_resume_button: ttk.Button = None
         self.cancel_button: ttk.Button = None
 
-        self.translations: Dict[str, Dict[str, str]] = {
-            "en-US": {
-                "url": "Video or Playlist URL",
-                "paste": "Paste URL from clipboard",
-                "download": "Download",
-                "download_btn": "Start downloading the file",
-                "pause": "Pause",
-                "resume": "Resume",
-                "pause_resume_btn": "Pause and resume the download process",
-                "cancel": "Cancel",
-                "cancel_btn": "Cancel the current download",
-                "playlist": "Playlist",
-                "playlist_ckb": "Enable playlist download",
-                "keep_original": "Keep Original",
-                "keep_original_ckb": "Keep original video file after extraction",
-                "normalize_audio": "Normalize audio",
-                "normalize_ckb":  "Normalize audio to target LUFS (-14 dB)",
-                "show_log": "Show log",
-                "choose": "Choose folder to save downloads",
-                "open": "Open the download folder",
-                "audio_format": "Select audio output format",
-                "audio_quality": "Select audio bitrate (kbps applies to MP3/M4A only)",
-                "help": "Open help page",
-                "theme": "Toggle light/dark theme",
-            }
-        }
+        self._ckb_bg = None
+        self._ckb_fg = None
+        self._ckb_active_bg = None
+        self._ckb_indicator_bg = None
+        self._ckb_indicator_fg = None
+        self._ckb_selectcolor = None
 
-        self.status_var: tk.StringVar = tk.StringVar(value="Ready")
-
+        self.status_var: tk.StringVar = tk.StringVar(value=self.i18n.t("ready"))
         self.progress_var: tk.DoubleVar = tk.DoubleVar(value=0)
         self.saved_selection: dict = None
-
+        self.selected_resolution: tk.StringVar = tk.StringVar(value="Auto")
         self._configure_style()
         self._build_ui()
         self._apply_theme()
+
+        self._update_resolution_state()
 
         self.is_paused: bool = False
 
@@ -113,8 +109,8 @@ class AppWindow(tk.Tk):
         if os.path.exists(self.STATE_FILE):
             # If there is a paused download
             resume: bool = messagebox.askyesno(
-                "Paused download found",
-                "There is a paused download.\nDo you want to resume?"
+                self.i18n.t("app.window.state_to_resume_title"),
+                self.i18n.t("app.window.state_to_resume")
             )
 
             if resume:
@@ -126,14 +122,6 @@ class AppWindow(tk.Tk):
                 self._on_no_resume()
 
         self.protocol("WM_DELETE_WINDOW", self.on_window_close)
-
-    # =========================
-    # TRANSLATION
-    # =========================
-    def t(self, key: str) -> str:
-        """Translate a UI string key."""
-
-        return self.translations[self.language].get(key, key)
 
     # =========================
     # UI BUILDING
@@ -169,9 +157,22 @@ class AppWindow(tk.Tk):
             width=3,
             command=self._open_help
         )
+        self.help_btn.configure(takefocus=False)
         self.help_btn.pack(side="right", padx=(5, 0))
 
-        Tooltip(self.help_btn, self.t("help"))
+        Tooltip(self.help_btn, self.i18n.t("help"))
+
+        # Langauge toggle button
+        self.lang_btn = ttk.Button(
+            header,
+            image=self.flag_icons[self.language],
+            width=3,
+            command=self.on_language_clicked
+        )
+        self.lang_btn.pack(side="right", padx=(5, 0))
+        self.lang_btn.configure(takefocus=False)
+
+        Tooltip(self.lang_btn, self.i18n.t("lang"))
 
         # Theme toggle button
         self.theme_btn: ttk.Button = ttk.Button(
@@ -180,39 +181,37 @@ class AppWindow(tk.Tk):
             width=3,
             command=self.toggle_theme
         )
-        self.theme_btn.pack(side="right")
+        self.theme_btn.configure(takefocus=False)
+        self.theme_btn.pack(side="right",padx=(5, 0))
 
-        Tooltip(self.theme_btn, self.t("theme"))
+        Tooltip(self.theme_btn, self.i18n.t("theme"))
 
     def _build_url_section(self) -> None:
-        """
-        Build the URL input section.
-
-        This section allows the user to paste or type a YouTube URL,
-        providing both keyboard shortcuts (Ctrl+V) and a paste button
-        for improved usability.
-        """
-
-        frame: ttk.Frame = ttk.Frame(self)
+        frame = ttk.Frame(self)
         frame.pack(fill="x", padx=10, pady=10)
 
-        ttk.Label(frame, text=self.t("url")).pack(anchor="w")
+        ttk.Label(frame, text=self.i18n.t("url")).grid(
+            row=0, column=0, columnspan=3, sticky="w"
+        )
 
-        row: ttk.Frame = ttk.Frame(frame)
-        row.pack(fill="x")
+        self.url_entry = ttk.Entry(frame)
+        self.url_entry.grid(
+            row=1, column=0, sticky="ew", padx=(0, 5)
+        )
 
-        self.url_entry: ttk.Entry = ttk.Entry(row)
-        self.url_entry.pack(side="left", fill="x", expand=True)
-
-        paste_btn: ttk.Button = ttk.Button(
-            row,
+        paste_btn = ttk.Button(
+            frame,
             text="📋",
-            width=3,
+            width=4,
             command=self._paste_url
         )
-        paste_btn.pack(side="left", pady=(5, 0))
+        paste_btn.configure(takefocus=False)
+        paste_btn.grid(row=1, column=1)
 
-        Tooltip(paste_btn, self.t("paste"))
+        Tooltip(paste_btn, self.i18n.t("paste"))
+
+        # Layout rules
+        frame.columnconfigure(0, weight=1)
 
     def _build_options(self) -> None:
         """
@@ -227,7 +226,7 @@ class AppWindow(tk.Tk):
         # -------------------------
         # Audio Format
         # -------------------------
-        ttk.Label(frame, text="Audio Format:").pack(side="left")
+        ttk.Label(frame, text=self.i18n.t("audio_format_label")).pack(side="left")
 
         format_options: list = ["mp3", "wav", "flac", "m4a"]
 
@@ -240,12 +239,12 @@ class AppWindow(tk.Tk):
         )
         self.audio_format_menu.pack(side="left", padx=(5, 15))
 
-        Tooltip(self.audio_format_menu, self.t("audio_format"))
+        Tooltip(self.audio_format_menu, self.i18n.t("audio_format"))
 
         # -------------------------
         # Audio Quality
         # -------------------------
-        ttk.Label(frame, text="Audio Quality (kbps):").pack(side="left", padx=(0, 5))
+        ttk.Label(frame, text=self.i18n.t("audio_quality_label")).pack(side="left", padx=(0, 5))
 
         quality_options: list = ["128", "192", "256", "320"]
 
@@ -258,37 +257,57 @@ class AppWindow(tk.Tk):
         )
         self.audio_quality_menu.pack(side="left", padx=(5, 15))
 
-        Tooltip(self.audio_quality_menu, self.t("audio_quality"))
+        Tooltip(self.audio_quality_menu, self.i18n.t("audio_quality"))
 
         # -------------------------
         # Checkbuttons for extra options
         # -------------------------
-        self.playlist_ckb: tk.Checkbutton = tk.Checkbutton(
+        self.playlist_ckb = tk.Checkbutton(
             frame,
-            text=self.t("playlist"),
+            text=self.i18n.t("playlist"),
             variable=self.playlist_var
         )
         self.playlist_ckb.pack(side="left", padx=(0, 10))
-
-        Tooltip(self.playlist_ckb, self.t("playlist_ckb"))
-
-        self.keep_original_ckb: tk.Checkbutton = tk.Checkbutton(
-            frame,
-            text=self.t("keep_original"),
-            variable=self.keep_original_var
-        )
-        self.keep_original_ckb.pack(side="left", padx=(0, 10))
-
-        Tooltip(self.keep_original_ckb, self.t("keep_original_ckb"))
+        self.style_tk_checkbutton(self.playlist_ckb)
 
         self.normalize_ckb: tk.Checkbutton = tk.Checkbutton(
             frame,
-            text=self.t("normalize_audio"),
+            text=self.i18n.t("normalize_audio"),
             variable=self.normalize_var
         )
         self.normalize_ckb.pack(side="left", padx=(0, 10))
+        self.style_tk_checkbutton(self.normalize_ckb)
 
-        Tooltip(self.normalize_ckb, self.t("normalize_ckb"))
+        Tooltip(self.normalize_ckb, self.i18n.t("normalize_ckb"))
+
+        self.keep_original_ckb: tk.Checkbutton = tk.Checkbutton(
+            frame,
+            text=self.i18n.t("keep_original"),
+            variable=self.keep_original_var,
+            command=self._update_resolution_state
+        )
+        self.keep_original_ckb.pack(side="left", padx=(0, 10))
+        self.style_tk_checkbutton(self.keep_original_ckb)
+
+        Tooltip(self.keep_original_ckb, self.i18n.t("keep_original_ckb"))
+
+        ttk.Label(frame, text=self.i18n.t("resolution_label")).pack(side="left", padx=(0, 5))
+
+        self.resolution_cb = ttk.Combobox(
+            frame,
+            textvariable=self.selected_resolution,
+            values=["Auto", "480p", "720p", "1080p"],
+            state="readonly",
+            width=10
+        )
+        self.resolution_cb.pack(side="left", padx=(5, 15))
+
+        Tooltip(self.resolution_cb, self.i18n.t("video_resolution"))
+
+        self.resolution_cb.bind(
+            "<<ComboboxSelected>>",
+            lambda e: self._on_resolution_change()
+        )
 
     def _build_actions(self) -> None:
         """
@@ -303,60 +322,73 @@ class AppWindow(tk.Tk):
 
         self.download_btn: ttk.Button = ttk.Button(
             frame,
-            text=self.t("download"),
+            text=self.i18n.t("download"),
             command=self.start_download
         )
+        self.download_btn.configure(takefocus=False)
         self.download_btn.pack(side="left", padx=(5, 0))
 
-        Tooltip(self.download_btn, self.t("download_btn"))
+        Tooltip(self.download_btn, self.i18n.t("download_btn"))
 
         self.pause_resume_btn: ttk.Button = ttk.Button(
             frame,
-            text=self.t("pause"),
+            text=self.i18n.t("pause"),
             command=self.on_pause_resume_clicked,
             state="disabled"
         )
+        self.pause_resume_btn.configure(takefocus=False)
         self.pause_resume_btn.pack(side="left", padx=(5, 0))
 
-        Tooltip(self.pause_resume_btn, self.t("pause_resume_btn"))
+        Tooltip(self.pause_resume_btn, self.i18n.t("pause_resume_btn"))
 
         self.cancel_btn: ttk.Button = ttk.Button(
             frame,
-            text=self.t("cancel"),
+            text=self.i18n.t("cancel"),
             command=self.on_cancel_clicked,
             state="disabled"
         )
+        self.pause_resume_btn.configure(takefocus=False)
         self.cancel_btn.pack(side="left", padx=(5, 0))
 
-        Tooltip(self.cancel_btn, self.t("cancel_btn"))
+        Tooltip(self.cancel_btn, self.i18n.t("cancel_btn"))
 
         self.open_btn: ttk.Button = ttk.Button(
             frame,
-            text="Open Folder",
+            text=self.i18n.t("open_label"),
             command=self._open_folder)
+        self.open_btn.configure(takefocus=False)
         self.open_btn.pack(side="left", padx=(5, 0))
 
-        Tooltip(self.open_btn, self.t("open"))
+        Tooltip(self.open_btn, self.i18n.t("open"))
 
     def _build_save_folder(self) -> None:
-        """
-        Build the folder selection UI section.
-
-        Allows the user to choose the download destination folder.
-        """
-
-        frame: ttk.Frame = ttk.Frame(self)
+        frame = ttk.Frame(self)
         frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(frame, text="Save in:").pack(side="left")
+        ttk.Label(frame, text=self.i18n.t("save_in_label")).grid(
+            row=0, column=0, columnspan=3, sticky="w"
+        )
 
-        self.output_entry: ttk.Entry = ttk.Entry(frame, textvariable=self.output_path_var)
-        self.output_entry.pack(side="left", fill="x", expand=True, padx=(5, 5))
+        self.output_entry = ttk.Entry(
+            frame,
+            textvariable=self.output_path_var
+        )
+        self.output_entry.grid(
+            row=1, column=0, sticky="ew", padx=(0, 5)
+        )
 
-        choose_btn: ttk.Button = ttk.Button(frame, text="Choose...", command=self._choose_folder)
-        choose_btn.pack(side="left")
+        choose_btn = ttk.Button(
+            frame,
+            text=self.i18n.t("choose_label"),
+            width=10,
+            command=self._choose_folder
+        )
+        choose_btn.configure(takefocus=False)
+        choose_btn.grid(row=1, column=1)
 
-        Tooltip(choose_btn, self.t("choose"))
+        Tooltip(choose_btn, self.i18n.t("choose"))
+
+        frame.columnconfigure(0, weight=1)
 
     def _build_log(self) -> None:
         """
@@ -376,12 +408,12 @@ class AppWindow(tk.Tk):
 
         chk: tk.Checkbutton = tk.Checkbutton(
             container,
-            text=self.t("show_log"),
+            text=self.i18n.t("show_log"),
             variable=self.show_log_var,
             command=self._toggle_log
         )
         chk.pack(anchor="w")
-
+        self.style_tk_checkbutton(chk)
 
         self.log_text: tk.Text = tk.Text(
             container,
@@ -472,6 +504,10 @@ class AppWindow(tk.Tk):
         selected theme. Updates main window, child widgets, and ttk styles.
         """
 
+        config = load_config()
+        config["theme"] = self.theme
+        save_config(config)
+
         if self.theme == "dark":
             bg = "#1e1e1e"
             fg = "#ffffff"
@@ -480,8 +516,8 @@ class AppWindow(tk.Tk):
             btn_bg = "#3a3a3a"
             btn_fg = "#ffffff"
             btn_hover_bg = "#505050"
-            ckb_bg = "#1e1e1e"
-            ckb_fg = "#ffffff"
+            ckb_bg = bg
+            ckb_fg = fg
             ckb_hover_bg = "#333333"
         else:
             bg = "#f5f5f5"
@@ -495,6 +531,13 @@ class AppWindow(tk.Tk):
             ckb_fg = "#000000"
             ckb_hover_bg = "#e8e8e8"
 
+        self._ckb_bg = ckb_bg
+        self._ckb_fg = ckb_fg
+        self._ckb_active_bg = ckb_hover_bg
+        self._ckb_indicator_bg = entry_bg
+        self._ckb_indicator_fg = fg
+        self._ckb_selectcolor = entry_bg
+
         # Main window background
         self.configure(bg=bg)
 
@@ -502,17 +545,22 @@ class AppWindow(tk.Tk):
         style = self.style
         style.configure("TFrame", background=bg)
         style.configure("TLabel", background=bg, foreground=fg)
+        style.configure(
+            "TEntry",
+            fieldbackground=entry_bg,
+            foreground=entry_fg,
+            background=entry_bg
+        )
+        style.map(
+            "TEntry",
+            fieldbackground=[("readonly", entry_bg)],
+            foreground=[("readonly", entry_fg)]
+        )
         style.configure("TButton", background=btn_bg, foreground=btn_fg)
         style.map(
             "TButton",
             background=[("active", btn_hover_bg)],
             foreground=[("active", btn_fg)]
-        )
-        style.configure("TCheckbutton", background=ckb_bg, foreground=ckb_fg)
-        style.map(
-            "TCheckbutton",
-            background=[("active", ckb_hover_bg)],
-            foreground=[("active", ckb_fg)]
         )
 
         # Recursively apply colors to child widgets (for non-ttk widgets)
@@ -530,13 +578,36 @@ class AppWindow(tk.Tk):
                         child.configure(background=entry_bg, foreground=entry_fg)
                     elif cls in ("Text",):
                         child.configure(background=entry_bg, foreground=entry_fg)
-                    elif cls in ("TCheckbutton", "Checkbutton"):
-                        child.configure(background=ckb_bg, foreground=ckb_fg)
+
                 except tk.TclError:
                     pass
                 _recursive_apply(child)
 
         _recursive_apply(self)
+
+        def _reapply_checkbuttons(widget):
+            for child in widget.winfo_children():
+                if isinstance(child, tk.Checkbutton):
+                    self.style_tk_checkbutton(child)
+                _reapply_checkbuttons(child)
+
+        _reapply_checkbuttons(self)
+
+    def style_tk_checkbutton(self, chk: tk.Checkbutton) -> None:
+        chk.configure(
+            background=self._ckb_bg,
+            foreground=self._ckb_fg,
+            activebackground=self._ckb_active_bg,
+            activeforeground=self._ckb_fg,
+            selectcolor=self._ckb_selectcolor,
+            indicatoron=True,
+            highlightthickness=0,
+            bd=0,
+            relief="flat",
+            anchor="w",
+            justify="left",
+            takefocus=False
+        )
 
     # =========================
     # Download
@@ -550,7 +621,7 @@ class AppWindow(tk.Tk):
         self.set_downloading_state()
 
         self.progress_var.set(0)
-        self.status_var.set("Initiating...")
+        self.status_var.set(self.i18n.t("initiating"))
 
         Thread(target=self.run_download, daemon=True).start()
 
@@ -561,6 +632,7 @@ class AppWindow(tk.Tk):
             "output_path": self.output_path.strip(),
             "audio_format": self.audio_format_var.get(),
             "audio_quality": self.audio_quality_var.get(),
+            "video_resolution": self.selected_resolution.get(),
             "allow_playlist": self.playlist_var.get(),
             "keep_original": self.keep_original_var.get(),
             "normalize_enabled": self.normalize_var.get(),
@@ -569,7 +641,9 @@ class AppWindow(tk.Tk):
             "file_finished_hook": self.on_file_finished,
             "error_hook": self.on_error,
             "log_hook": self._log,
-            "state_file": self.STATE_FILE
+            "state_file": self.STATE_FILE,
+            "playlist_selection": self.saved_selection,
+            "language": self.language
         }
 
         url: str = self.url_entry.get().strip()
@@ -596,7 +670,12 @@ class AppWindow(tk.Tk):
         from datetime import datetime
 
         timestamp: str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        entry: str = f"[{timestamp}] {level}: {message}\n"
+
+        if "level" not in message:
+            entry: str = f"[{timestamp}] {level}: {message}\n"
+
+        else:
+            entry: str = message
 
         self.log_text.configure(state="normal")
         self.log_text.insert(tk.END, entry)
@@ -622,14 +701,14 @@ class AppWindow(tk.Tk):
         """
 
         if not url:
-            self._log("No URL provided", level="ERROR")
-            self._show_error("Please enter a YouTube URL.")
+            self._log(self.i18n.t("app.window.log_validate_url"), level="ERROR")
+            self._show_error(self.i18n.t("app.window.error_log_validate_not_url"))
 
             return False
 
         if not self._looks_like_youtube_url(url):
-            self._log(f"Invalid YouTube URL: {url}", level="ERROR")
-            self._show_error("Invalid YouTube URL.")
+            self._log(f"{self.i18n.t('app.window.error_log_not_looks_url')} {url}", level="ERROR")
+            self._show_error(self.i18n.t("app.window.error_log_not_looks_url"))
 
             return False
 
@@ -689,23 +768,18 @@ class AppWindow(tk.Tk):
 
         open_download_folder(self.output_path_var.get())
 
-    @staticmethod
-    def _open_help() -> None:
-        """Open the help webpage or local help file."""
-        webbrowser.open("https://github.com/your-repo/help")
-
     def on_pause_resume_clicked(self) -> None:
         if not self.is_paused:
             # Pause
             self.controller.pause()
             self.is_paused = True
-            self.pause_resume_btn.config(text=self.t("resume"))
+            self.pause_resume_btn.config(text=self.i18n.t("resume"))
 
         else:
             # Resume
             self.controller.resume()
             self.is_paused = False
-            self.pause_resume_btn.config(text=self.t("pause"))
+            self.pause_resume_btn.config(text=self.i18n.t("pause"))
 
     def on_cancel_clicked(self) -> None:
         if not hasattr(self, "controller") or not self.controller:
@@ -714,8 +788,8 @@ class AppWindow(tk.Tk):
         # Playlist
         if self.playlist_var.get():
             confirm = messagebox.askyesno(
-                "Cancel playlist",
-                "Do you wish to cancel after the current item finishes?"
+                self.i18n.t("app.window.on_cancel_clicked_title"),
+                self.i18n.t("app.window.on_cancel_clicked")
             )
 
             if not confirm:
@@ -723,38 +797,78 @@ class AppWindow(tk.Tk):
 
             self.controller.cancel(after_current=True)
 
-            self.status_var.set("⏭️ Finishing current playlist item...")
+            self.status_var.set(self.i18n.t("app.window.status_on_cancel_clicked_playlist"))
             self._log(
-                "⏭️ Cancellation requested: waiting for current item to finish.",
+                self.i18n.t("app.window.log_on_cancel_clicked_playlist"),
                 level="CANCEL"
             )
-
 
         # Single
         else:
             self.controller.cancel(after_current=False)
 
-            self.status_var.set("Canceling download...")
-            self._log("❌ Cancellation requested: download will be interrupted immediately.", level="CANCEL")
+            self.status_var.set(self.i18n.t("app.window.status_on_cancel_clicked_single"))
+            self._log(self.i18n.t("app.window.log_on_cancel_clicked_single"), level="CANCEL")
 
         self.cancel_btn.config(state="disabled")
 
     def _resume_from_state(self, path: str) -> None:
         import json
 
+        if not os.path.exists(path):
+            return
+
         with open(path, "r", encoding="utf-8") as f:
             state = json.load(f)
 
-        self.url_entry.insert(0, state["url"])
-        self.audio_format_var.set(state["audio_format"])
-        self.audio_quality_var.set(state["quality"])
-        self.playlist_var.set(state["allow_playlist"])
-        self.keep_original_var.set(state["keep_original"])
-        self.normalize_var.set(state["normalize_enabled"])
+        # ===============================
+        # Restore basic fields
+        # ===============================
+        url: str = state.get("url", "")
+
+        self.url_entry.delete(0, "end")
+
+        if isinstance(url, str) and url.strip():
+            self.url_entry.insert(0, url)
+
+        else:
+            self.url_entry.delete(0, "end")
+
+        self.audio_format_var.set(state.get("audio_format", "mp3"))
+        self.audio_quality_var.set(state.get("quality", "192"))
+        self.playlist_var.set(state.get("allow_playlist", False))
+        self.keep_original_var.set(state.get("keep_original", False))
+        self.normalize_var.set(state.get("normalize_enabled", False))
         self.output_path_var.set(state.get("output_path", download_dir))
+        self.selected_resolution.set(state.get("resolution", "Auto"))
+
         self.saved_selection = state.get("playlist_selection")
 
-        self.start_download()
+        paused: bool = state.get("paused", False)
+        mode: str = state.get("mode", "single")
+
+        print(mode)
+
+        # ===============================
+        # Decide resume behavior
+        # ===============================
+        if not paused:
+            print(paused)
+            # 🔥 NEVER auto-start if not paused
+            return
+
+        # ===============================
+        # Resume logic by mode
+        # ===============================
+        if mode == "single":
+            self.start_download()
+
+        elif mode == "playlist":
+            self.start_download()
+
+        else:
+            # Unknown mode → safest behavior
+            return
 
     def on_window_close(self):
 
@@ -779,7 +893,7 @@ class AppWindow(tk.Tk):
             pass
 
         # Optional: log
-        self._log("Download paused, discarded by user.")
+        self._log(self.i18n.t("app.window.log_on_no_resume"))
 
     # =========================
     # Hooks (THREAD-SAFE)
@@ -811,9 +925,9 @@ class AppWindow(tk.Tk):
 
             # create a status if detailed text wasn't provided
             if not status_text:
-                text: str = f"Progresso: {percent:.1f}%"
+                text: str = f"{self.i18n.t('status.progress')} {percent:.1f}%"
                 if item_index and total_items:
-                    text: str = f"Item {item_index}/{total_items} — {text}"
+                    text: str = f"{self.i18n.t('status.index')} {item_index}/{total_items} — {text}"
             else:
                 text: str = status_text
 
@@ -840,7 +954,7 @@ class AppWindow(tk.Tk):
         """
 
         def update():
-            self._log(f"Completed: {os.path.basename(filename)}")
+            self._log(f"{self.i18n.t('app.window.log_on_file_finished')} {os.path.basename(filename)}")
             self.progress_var.set(0)
 
         self.after(0, update)
@@ -861,13 +975,8 @@ class AppWindow(tk.Tk):
         """
 
         messagebox.showwarning(
-            title="YouTube MIX detected",
-            message=(
-                "YouTube MIX playlists are automatically generated and customizable.\n\n"
-                "They may contain up to 5,000 videos and do not represent a fixed playlist.\n\n"
-                "For this reason, playlist download is not supported for MIX content.\n\n"
-                "The playlist option will be disabled."
-            )
+            title=self.i18n.t("app.window.show_mix_warming_title"),
+            message=self.i18n.t("app.window.show_mix_warming")
         )
 
         self.playlist_var.set(False)
@@ -885,10 +994,10 @@ class AppWindow(tk.Tk):
         """
 
         self.download_btn.config(state="normal")
-        self.pause_resume_btn.config(text=self.t("pause"), state="disabled")
+        self.pause_resume_btn.config(text=self.i18n.t("pause"), state="disabled")
         self.cancel_btn.config(state="disabled")
         self.is_paused = False
-        self.status_var.set("Ready")
+        self.status_var.set(self.i18n.t("ready"))
 
     def set_downloading_state(self) -> None:
         """
@@ -899,7 +1008,7 @@ class AppWindow(tk.Tk):
         """
 
         self.download_btn.config(state="disabled")
-        self.pause_resume_btn.config(text=self.t("pause"), state="normal")
+        self.pause_resume_btn.config(text=self.i18n.t("pause"), state="normal")
         self.cancel_btn.config(state="normal")
         self.is_paused = False
 
@@ -914,11 +1023,79 @@ class AppWindow(tk.Tk):
         self.pause_resume_btn.config(state="disabled")
         self.cancel_btn.config(state="disabled")
 
-    @staticmethod
-    def notify_auth_failed() -> None:
-        """Alerts when video is restricted."""
+    def _on_resolution_change(self):
+        self.selected_resolution.set(self.resolution_cb.get())
 
-        messagebox.showwarning(
-            "Restricted video skipped",
-            "A private or age-restricted video could not be downloaded and was skipped."
-        )
+    def _update_resolution_state(self) -> None:
+        """
+
+        :return:
+        """
+        can_select_resolution: bool = self.keep_original_var.get()
+
+        if can_select_resolution:
+            self.resolution_cb.configure(state="readonly")
+
+        else:
+            self.selected_resolution.set("Auto")
+            self.resolution_cb.config(state="disabled")
+
+    def on_language_clicked(self) -> None:
+        new_lang = "pt-BR" if self.language == "en-US" else "en-US"
+
+        config = load_config()
+        config["language"] = new_lang
+        config["theme"] = self.theme
+        save_config(config)
+
+        self._show_restart_dialog()
+
+    def _show_restart_dialog(self) -> None:
+        win = tk.Toplevel(self)
+        win.title(self.i18n.t("app.window.show_restart_title"))
+        win.geometry("360x150")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        ttk.Label(
+            win,
+            text=self.i18n.t("app.window.show_restart"),
+            wraplength=320,
+            justify="center"
+        ).pack(pady=20, padx=10)
+
+        ttk.Button(
+            win,
+            text="OK",
+            command=lambda: self._restart_app(win)
+        ).pack(pady=10)
+
+    def _restart_app(self, dialog=None):
+        if dialog:
+            dialog.destroy()
+
+        self.update_idletasks()
+        self.destroy()
+
+        if getattr(sys, "frozen", False):
+            # Packaged app (PyInstaller / cx_Freeze)
+            subprocess.Popen(
+                [sys.executable],
+                close_fds=True,
+                shell=False
+            )
+        else:
+            # Development mode
+            main_file = os.path.abspath(sys.modules["__main__"].__file__)
+            subprocess.Popen(
+                [sys.executable, main_file],
+                close_fds=True,
+                shell=False
+            )
+
+        sys.exit(0)
+
+    def _open_help(self):
+        help_text = self.i18n.help_text("HELP_TEXT")
+        HelpWindow(self, help_text)

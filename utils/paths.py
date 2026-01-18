@@ -27,7 +27,7 @@ def get_ffmpeg_path():
 
     if not os.path.isfile(ffmpeg_path):
         raise FileNotFoundError(
-            f"ffmpeg.exe não encontrado em: {ffmpeg_path}"
+            f"ffmpeg.exe not found in: {ffmpeg_path}"
         )
 
     return ffmpeg_path
