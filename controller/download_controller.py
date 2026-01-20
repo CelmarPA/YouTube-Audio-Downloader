@@ -4,14 +4,13 @@ import os
 import threading
 import tkinter as tk
 import yt_dlp
-import yt_dlp.utils
 
-from tkinter import messagebox
 from typing import Callable, Optional, TYPE_CHECKING, List
 
 from core.downloader import Downloader
 from ui.playlist_frame import PlaylistFrame
 from utils.helpers import mark_already_downloaded
+from ui.dialogs.themed_messagebox import ThemedMessageBox
 
 if TYPE_CHECKING:
     from ui.app_window import AppWindow
@@ -146,12 +145,12 @@ class DownloadController:
                 basic_info["__restricted__"] = "age"
 
             if basic_info.get("__restricted__") and not options.get("use_cookies"):
-                self._log(self.app_window.i18n.t("download_controller.log_restricted"), level="AUTH")
+                self._log(self.app_window.i18n.t("download_controller.log_restricted"), level=self.app_window.i18n.t("auth"))
 
                 self._emit_error(
                     self.app_window.i18n.t("download_controller.error_restricted_msg"),
                     title=self.app_window.i18n.t("download_controller.error_restricted_title"),
-                    level="AUTH"
+                    level=self.app_window.i18n.t("auth")
                 )
                 return
 
@@ -216,7 +215,7 @@ class DownloadController:
                     self._emit_error(
                         self.app_window.i18n.t("download_controller.error_not_info"),
                         title=self.app_window.i18n.t("download_controller.error_not_info_title"),
-                        level="AUTH"
+                        level=self.app_window.i18n.t("auth")
                     )
                     return
                 entries: List[dict] = []
@@ -250,7 +249,7 @@ class DownloadController:
                     self._set_status(f"📋 {len(entries)} {self.app_window.i18n.t('download_controller.status_entries')}")
 
                 if not entries:
-                    self._log(self.app_window.i18n.t("download_controller.log_not_entries"), level="ERROR")
+                    self._log(self.app_window.i18n.t("download_controller.log_not_entries"), level=self.app_window.i18n.t("error_level"))
 
                     return
 
@@ -291,7 +290,7 @@ class DownloadController:
                 selected_entries = playlist_window.selected
 
                 if not selected_entries:
-                    self._log(self.app_window.i18n.t("download_controller.log_not_selected_entries"), level="CANCEL")
+                    self._log(self.app_window.i18n.t("download_controller.log_not_selected_entries"), level=self.app_window.i18n.t("cancel_level"))
 
                     return
 
@@ -304,7 +303,7 @@ class DownloadController:
             # DEFERRED CANCEL — abort before start
             # ================================
             if self.pending_cancel:
-                self._log(self.app_window.i18n.t("download_controller.log_pending_cancel"), level="CANCEL")
+                self._log(self.app_window.i18n.t("download_controller.log_pending_cancel"), level=self.app_window.i18n.t("cancel_level"))
 
                 self.pending_cancel = False
                 self.pending_cancel_after_current = False
@@ -360,6 +359,9 @@ class DownloadController:
 
         from datetime import datetime
 
+        if level == "INFO":
+            level: str = self.app_window.i18n.t("info")
+
         timestamp: str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         entry: str = f"[{timestamp}] {level}: {message}\n"
 
@@ -399,6 +401,12 @@ class DownloadController:
         Shows UI dialog, logs error and notifies hooks.
         """
 
+        if title == "Download error":
+            title = self.app_window.i18n.t("download_error")
+
+        if level == "ERROR":
+            level: str = self.app_window.i18n.t("error_level")
+
         self._log(message, level=level)
         self._error(message)
 
@@ -406,7 +414,12 @@ class DownloadController:
         if show_dialog:
             self.app_window.after(
                 0,
-                lambda: messagebox.showerror(title, message)
+                lambda: ThemedMessageBox.show_error(
+                    parent=self,
+                    title=title,
+                    message=message,
+                    theme=self.app_window.get_theme_context()
+                )
             )
 
     @staticmethod
@@ -452,9 +465,11 @@ class DownloadController:
     def _handle_auth_failed(self) -> None:
         """Alerts when video is restricted."""
 
-        messagebox.showwarning(
-            self.app_window.i18n.t("download_controller.handle_auth_failed_title"),
-            self.app_window.i18n.t("download_controller.handle_auth_failed")
+        ThemedMessageBox.show_warning(
+            parent=self,
+            title=self.app_window.i18n.t("download_controller.handle_auth_failed_title"),
+            message=self.app_window.i18n.t("download_controller.handle_auth_failed"),
+            theme=self.app_window.get_theme_context()
         )
 
         self.downloader.skip_current_item()
@@ -508,6 +523,7 @@ class DownloadController:
 
         ydl_opts: dict = {
             "quiet": True,
+            "no_warming": True,
             "skip_download": True,
             "extract_flat": "in_playlist",
             "dump_single_json": True,
@@ -542,9 +558,11 @@ class DownloadController:
         def ask_user():
             filename = os.path.basename(file_path)
 
-            keep: bool = messagebox.askyesno(
-                self.app_window.i18n.t("download_controller.ask_user_title"),
-                f"{self.app_window.i18n.t('download_controller.ask_user')}{filename}"
+            keep: bool = ThemedMessageBox.ask_yes_no(
+                parent=self,
+                title=self.app_window.i18n.t("download_controller.ask_user_title"),
+                message=f"{self.app_window.i18n.t('download_controller.ask_user')}{filename}",
+                theme=self.app_window.get_theme_context()
             )
 
             result["keep"] = keep

@@ -15,7 +15,7 @@ import tkinter as tk
 import subprocess
 
 from threading import Thread
-from tkinter import ttk, messagebox
+from tkinter import ttk
 from typing import Callable, Optional
 
 from controller.download_controller import DownloadController
@@ -25,7 +25,9 @@ from widgets.folders import open_download_folder, download_dir, choose_folder
 from i18n.manager import I18nManager
 from ui.help_window import HelpWindow
 from utils.paths import resource_path
+from utils.window import set_window_icon
 from utils.app_config import load_config, save_config
+from ui.dialogs.themed_messagebox import ThemedMessageBox
 
 
 DOWNLOAD_DIR: str = os.path.abspath(download_dir)
@@ -68,11 +70,7 @@ class AppWindow(tk.Tk):
         self.geometry("850x500")
         self.minsize(850, 500)
 
-        try:
-            self.iconbitmap("assets/icon.ico")
-        except Exception as e:
-            _e: str = str(e)
-            pass
+        set_window_icon(self)
 
         self.theme: str = self.config.get("theme", "light")
 
@@ -108,9 +106,11 @@ class AppWindow(tk.Tk):
         # ===== When starting the application =====
         if os.path.exists(self.STATE_FILE):
             # If there is a paused download
-            resume: bool = messagebox.askyesno(
-                self.i18n.t("app.window.state_to_resume_title"),
-                self.i18n.t("app.window.state_to_resume")
+            resume: bool = ThemedMessageBox.ask_yes_no(
+                parent=self,
+                title=self.i18n.t("app.window.state_to_resume_title"),
+                message=self.i18n.t("app.window.state_to_resume"),
+                theme=self.get_theme_context()
             )
 
             if resume:
@@ -151,7 +151,7 @@ class AppWindow(tk.Tk):
         ttk.Label(header, text="YouTube Audio Downloader", font=("TkDefaultFont", 14, "bold")).pack(side="left")
 
         # Help button
-        self.help_btn: ttk.Button = ttk.Button(  # TODO: CHANGE TO A LOCAL HELP
+        self.help_btn: ttk.Button = ttk.Button(
             header,
             text="❔",
             width=3,
@@ -401,9 +401,11 @@ class AppWindow(tk.Tk):
 
         container: ttk.Frame = ttk.Frame(self)
         self.log_container = container
-
         container.pack(fill="both", expand=True, padx=10, pady=5)
 
+        # ===============================
+        # Show / hide log checkbox
+        # ===============================
         self.show_log_var = tk.BooleanVar(value=True)
 
         chk: tk.Checkbutton = tk.Checkbutton(
@@ -415,12 +417,36 @@ class AppWindow(tk.Tk):
         chk.pack(anchor="w")
         self.style_tk_checkbutton(chk)
 
+        # ===============================
+        # Log area with scrollbar
+        # ===============================
+        log_frame = ttk.Frame(container)
+        log_frame.pack(fill="both", expand=True, pady=(5, 0))
+
+        scrollbar = ttk.Scrollbar(log_frame, orient="vertical")
+
         self.log_text: tk.Text = tk.Text(
-            container,
+            log_frame,
             height=10,
-            state="disabled"
+            state="disabled",
+            yscrollcommand=scrollbar.set,
+            wrap="word"
         )
-        self.log_text.pack(fill="both", expand=True, pady=(5, 0))
+
+        scrollbar.config(command=self.log_text.yview)
+
+        self.log_text.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # ===============================
+        # Mouse wheel support
+        # ===============================
+        self.log_text.bind("<Enter>", lambda _: self.log_text.bind_all(
+            "<MouseWheel>", self._on_log_mousewheel
+        ))
+        self.log_text.bind("<Leave>", lambda _: self.log_text.unbind_all(
+            "<MouseWheel>"
+        ))
 
     def _build_status_bar(self) -> None:
         """
@@ -530,6 +556,13 @@ class AppWindow(tk.Tk):
             ckb_bg = "#f5f5f5"
             ckb_fg = "#000000"
             ckb_hover_bg = "#e8e8e8"
+
+        self.bg = bg
+        self.fg = fg
+        self.entry_bg = entry_bg
+        self.entry_fg = entry_fg
+        self.btn_bg = btn_bg
+        self.btn_fg = btn_fg
 
         self._ckb_bg = ckb_bg
         self._ckb_fg = ckb_fg
@@ -701,13 +734,13 @@ class AppWindow(tk.Tk):
         """
 
         if not url:
-            self._log(self.i18n.t("app.window.log_validate_url"), level="ERROR")
+            self._log(self.i18n.t("app.window.log_validate_url"), level=self.i18n.t("error_level"))
             self._show_error(self.i18n.t("app.window.error_log_validate_not_url"))
 
             return False
 
         if not self._looks_like_youtube_url(url):
-            self._log(f"{self.i18n.t('app.window.error_log_not_looks_url')} {url}", level="ERROR")
+            self._log(f"{self.i18n.t('app.window.error_log_not_looks_url')} {url}", level=self.i18n.t("error_level"))
             self._show_error(self.i18n.t("app.window.error_log_not_looks_url"))
 
             return False
@@ -732,8 +765,8 @@ class AppWindow(tk.Tk):
 
         return bool(re.match(pattern, url))
 
-    @staticmethod
-    def _show_error(message: str) -> None:
+
+    def _show_error(self, message: str) -> None:
         """
         Display an error message dialog to the user.
 
@@ -741,9 +774,12 @@ class AppWindow(tk.Tk):
             message (str): Error message to display.
         """
 
-        from tkinter import messagebox
-
-        messagebox.showerror("Error", message)
+        ThemedMessageBox.show_error(
+            parent=self,
+            title=self.i18n.t("error"),
+            message=message,
+            theme=self.get_theme_context()
+        )
 
     def _set_status(self, message: str) -> None:
         """
@@ -787,9 +823,11 @@ class AppWindow(tk.Tk):
 
         # Playlist
         if self.playlist_var.get():
-            confirm = messagebox.askyesno(
-                self.i18n.t("app.window.on_cancel_clicked_title"),
-                self.i18n.t("app.window.on_cancel_clicked")
+            confirm = ThemedMessageBox.ask_yes_no(
+                parent=self,
+                title=self.i18n.t("app.window.on_cancel_clicked_title"),
+                message=self.i18n.t("app.window.on_cancel_clicked"),
+                theme=self.get_theme_context()
             )
 
             if not confirm:
@@ -800,7 +838,7 @@ class AppWindow(tk.Tk):
             self.status_var.set(self.i18n.t("app.window.status_on_cancel_clicked_playlist"))
             self._log(
                 self.i18n.t("app.window.log_on_cancel_clicked_playlist"),
-                level="CANCEL"
+                level=self.i18n.t("cancel_level")
             )
 
         # Single
@@ -808,7 +846,7 @@ class AppWindow(tk.Tk):
             self.controller.cancel(after_current=False)
 
             self.status_var.set(self.i18n.t("app.window.status_on_cancel_clicked_single"))
-            self._log(self.i18n.t("app.window.log_on_cancel_clicked_single"), level="CANCEL")
+            self._log(self.i18n.t("app.window.log_on_cancel_clicked_single"), level=self.i18n.t("cancel_level"))
 
         self.cancel_btn.config(state="disabled")
 
@@ -966,17 +1004,23 @@ class AppWindow(tk.Tk):
         :param message: Error message.
         :type message: str
         """
-        self.after(0, lambda: messagebox.showerror("Error", message))
+        self.after(0, lambda: ThemedMessageBox.show_error(
+            parent=self,
+            title=self.i18n.t("error"),
+            message=message,
+            theme=self.get_theme_context()
+        ))
 
     def show_mix_warning(self) -> None:
         """
         Displays a warning message explaining that YouTube MIX playlists
         cannot be downloaded as regular playlists.
         """
-
-        messagebox.showwarning(
+        ThemedMessageBox.show_warning(
+            parent=self,
             title=self.i18n.t("app.window.show_mix_warming_title"),
-            message=self.i18n.t("app.window.show_mix_warming")
+            message=self.i18n.t("app.window.show_mix_warming"),
+            theme=self.get_theme_context()
         )
 
         self.playlist_var.set(False)
@@ -1051,25 +1095,15 @@ class AppWindow(tk.Tk):
         self._show_restart_dialog()
 
     def _show_restart_dialog(self) -> None:
-        win = tk.Toplevel(self)
-        win.title(self.i18n.t("app.window.show_restart_title"))
-        win.geometry("360x150")
-        win.resizable(False, False)
-        win.transient(self)
-        win.grab_set()
+        result = ThemedMessageBox.ask_yes_no(
+            parent=self,
+            title=self.i18n.t("app.window.show_restart_title"),
+            message=self.i18n.t("app.window.show_restart"),
+            theme=self.get_theme_context()
+        )
 
-        ttk.Label(
-            win,
-            text=self.i18n.t("app.window.show_restart"),
-            wraplength=320,
-            justify="center"
-        ).pack(pady=20, padx=10)
-
-        ttk.Button(
-            win,
-            text="OK",
-            command=lambda: self._restart_app(win)
-        ).pack(pady=10)
+        if result:
+            self._restart_app()
 
     def _restart_app(self, dialog=None):
         if dialog:
@@ -1097,5 +1131,26 @@ class AppWindow(tk.Tk):
         sys.exit(0)
 
     def _open_help(self):
-        help_text = self.i18n.help_text("HELP_TEXT")
-        HelpWindow(self, help_text)
+        HelpWindow(
+            parent=self,
+            help_text=self.i18n.help_text("HELP_TEXT"),
+            theme={
+                "bg": self.bg,
+                "fg": self.fg,
+                "accent": "#4ea1ff",
+                "warning": "#ff6b6b"
+            }
+        )
+
+    def get_theme_context(self) -> dict:
+        theme: dict = {
+            "bg": self.bg,
+            "fg": self.fg,
+            "accent": "#4ea1ff",
+            "warning": "#ff6b6b"
+        }
+
+        return theme
+
+    def _on_log_mousewheel(self, event):
+        self.log_text.yview_scroll(int(-1 * (event.delta / 120)), "units")

@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
 from utils.helpers import duration_format
 from ui.tooltip import Tooltip
+from utils.window import center_window, set_window_icon
+
 
 class PlaylistFrame(tk.Toplevel):
     """
@@ -48,8 +50,11 @@ class PlaylistFrame(tk.Toplevel):
 
         self.title("Select playlist videos")
         self.geometry("850x500")
+        set_window_icon(self)
 
         self.theme: str = theme
+
+        center_window(self, master)
 
         self.entries: List[Dict[str, Any]] = list(entries)
         self.check_vars: List[tk.BooleanVar] = []

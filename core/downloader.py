@@ -214,7 +214,7 @@ class Downloader:
             if self.selected_entries:
                 self._log(
                     f"{self.i18n.t('downloader.log_selected_entries')} ({len(self.selected_entries)} item(s))",
-                    "FLOW"
+                    self.i18n.t("flow")
                 )
 
                 info = {
@@ -263,7 +263,7 @@ class Downloader:
             msg = str(e)
 
             self._error(msg)
-            self._log(f"{self.i18n.t('downloader.log_error_download_failed')} {msg}", "ERROR")
+            self._log(f"{self.i18n.t('downloader.log_error_download_failed')} {msg}", self.i18n.t("error_level"))
 
         finally:
             if not self.paused:
@@ -284,7 +284,7 @@ class Downloader:
 
         self._set_status(self.i18n.t("downloader.status_prepare_dirs"))
 
-        self._log(self.i18n.t("downloader.log_prepare_dirs"), "START")
+        self._log(self.i18n.t("downloader.log_prepare_dirs"), self.i18n.t("start"))
 
     def _build_ydl_opts(self) -> None:
         """
@@ -342,8 +342,8 @@ class Downloader:
             "restrictfilenames": True,
             "nopart": False,
             "quiet": True,
-            "logger": YDLLogger(self),
             "no_warming": True,
+            "logger": YDLLogger(self),
             "ignoreerrors": True,
             "continuedl": True
         }
@@ -428,10 +428,10 @@ class Downloader:
             if self._should_download(final_base):
                 entries_to_download.append(entry)
             else:
-                self._log(f"{self.i18n.t('downloader.log_skipping_cached')} {title}", "CACHE")
+                self._log(f"{self.i18n.t('downloader.log_skipping_cached')} {title}", self.i18n.t("cache"))
 
         if not entries_to_download:
-            self._log(self.i18n.t("downloader.log_error_not_entries"), "CACHE")
+            self._log(self.i18n.t("downloader.log_error_not_entries"), self.i18n.t("cache"))
 
             shutil.rmtree(self.tmp_playlist_dir, ignore_errors=True)
 
@@ -469,7 +469,7 @@ class Downloader:
 
                         self._log(
                             f"{self.i18n.t('downloader.log_error_restricted_private')} {title}",
-                            "SKIP"
+                            self.i18n.t("skip")
                         )
 
                         # 🔔 notify UI ONCE
@@ -501,7 +501,7 @@ class Downloader:
             )
 
             if not self._should_download(base_path):
-                self._log({self.i18n.t("downloader.log_not_should_download")}, "CACHE")
+                self._log({self.i18n.t("downloader.log_not_should_download")}, self.i18n.t("cache"))
 
                 return
 
@@ -531,7 +531,7 @@ class Downloader:
 
                     self._log(
                         f"{self.i18n.t('downloader.log_error_auth_failed')} {info.get('id')}",
-                        "SKIP"
+                        self.i18n.t("skip")
                     )
 
                     return
@@ -548,7 +548,7 @@ class Downloader:
         # CANCELLED + KEEP
         # =============================
         if self.cancel_requested and self.keep_after_cancel:
-            self._log(self.i18n.t("downloader.log_cancel_keep"), "CANCEL")
+            self._log(self.i18n.t("downloader.log_cancel_keep"), self.i18n.t("cancel_level"))
 
             self.normalize_move_and_clean()
 
@@ -578,7 +578,7 @@ class Downloader:
         # CANCELED WITHOUT KEEP
         # =============================
         if self.cancel_requested and not self.keep_after_cancel:
-            self._log(self.i18n.t("downloader.log_cancel_no_keep"), "CANCEL")
+            self._log(self.i18n.t("downloader.log_cancel_no_keep"), self.i18n.t("cancel_level"))
 
             # 🔥 ERASE ONLY PMS
             if self.tmp_playlist_dir:
@@ -612,13 +612,13 @@ class Downloader:
         if after_current and self.allow_playlist:
             self.cancel_after_current: bool = True
 
-            self._log(self.i18n.t("downloader.log_cancel_after_current"), "CANCEL")
+            self._log(self.i18n.t("downloader.log_cancel_after_current"), self.i18n.t("cancel_level"))
 
         else:
             self.cancel_requested = True
             self.cancel_after_current: bool = False
 
-            self._log(self.i18n.t("downloader.log_cancel_immediate"), "CANCEL")
+            self._log(self.i18n.t("downloader.log_cancel_immediate"), self.i18n.t("cancel_level"))
 
     # ===============================
     # Hooks for yt-dlp
@@ -676,7 +676,7 @@ class Downloader:
 
                     self._log(
                         f"{self.i18n.t('downloader.log_format_resolution')} {fmt} — {height}p @ {fps}fps — {vcodec}",
-                        "INFO"
+                        self.i18n.t("info")
                     )
                     self._logged_resolution = True
 
@@ -698,9 +698,9 @@ class Downloader:
                     status_text = f"{idx:02d}/{total:02d} — {status_text}"
 
                 if downloaded_bytes == 0:
-                    self._log(f"{self.i18n.t('downloader.log_starting')} {display_filename}", "DOWNLOAD")
+                    self._log(f"{self.i18n.t('downloader.log_starting')} {display_filename}", self.i18n.t("download_level"))
 
-                self._log(f"{status_text}", "DOWNLOAD")
+                self._log(f"{status_text}", self.i18n.t("download_level"))
 
                 if self.progress_hook:
                     self.progress_hook(percent, playlist_index, playlist_count, status_text)
@@ -710,14 +710,14 @@ class Downloader:
                 self.generated_files.add(abs_path)
 
 
-                self._log(f"{display_filename}", "DONE")
+                self._log(f"{display_filename}", self.i18n.t("done"))
 
                 if self.progress_hook:
                     self.progress_hook(
                         100.0,
                         d.get("playlist_index"),
                         d.get("playlist_count"),
-                        f"[DONE] {display_filename}"
+                        f"[{self.i18n.t('done')}] {display_filename}"
                     )
         # ===============================
         # 2️⃣ Immediate Cancellation
@@ -728,10 +728,10 @@ class Downloader:
             if tmp_file and os.path.exists(tmp_file):
                 try:
                     os.remove(tmp_file)
-                    self._log(f"{self.i18n.t('downloader.log_remove_tmp')} {tmp_file}", "CANCEL")
+                    self._log(f"{self.i18n.t('downloader.log_remove_tmp')} {tmp_file}", self.i18n.t("cancel_level"))
 
                 except Exception as e:
-                    self._log(f"{self.i18n.t('downloader.log_error_remove_tmp')} {tmp_file} — {e}", "ERROR")
+                    self._log(f"{self.i18n.t('downloader.log_error_remove_tmp')} {tmp_file} — {e}", self.i18n.t("error_level"))
 
             raise yt_dlp.utils.DownloadError("Download canceled by user")
 
@@ -795,7 +795,7 @@ class Downloader:
 
             self._log(
                 f"{self.i18n.t('downloader.log_cancel_wanna_keep')} {keep}",
-                "CANCEL"
+                self.i18n.t("cancel_level")
             )
 
         # ==============================
@@ -823,7 +823,7 @@ class Downloader:
 
         # 🔥 Canceled + Keep → only move files, no normalization
         if self.cancel_requested and self.keep_after_cancel:
-            self._log(self.i18n.t("downloader.log_cancel_keep_normalization"), "NORMALIZE")
+            self._log(self.i18n.t("downloader.log_cancel_keep_normalization"), self.i18n.t("normalize"))
 
             for tmp_file, final_file in files_to_process:
                 if not tmp_file or not final_file:
@@ -859,10 +859,10 @@ class Downloader:
         if not tmp_dir:
             return
 
-        self._log(f"{self.i18n.t('downloader.log_files_collected')} {len(files_to_process)}", "NORMALIZE")
+        self._log(f"{self.i18n.t('downloader.log_files_collected')} {len(files_to_process)}", self.i18n.t("normalize"))
 
         if not files_to_process:
-            self._log(self.i18n.t("downloader.log_not_files_to_process"), "NORMALIZE")
+            self._log(self.i18n.t("downloader.log_not_files_to_process"), self.i18n.t("normalize"))
 
             return
 
@@ -885,19 +885,19 @@ class Downloader:
 
             # ❌ file does not exist
             if not os.path.exists(tmp_file):
-                self._log(f"{self.i18n.t('downloader.log_not_files_found')} {tmp_file}", "NORMALIZE")
+                self._log(f"{self.i18n.t('downloader.log_not_files_found')} {tmp_file}", self.i18n.t("normalize"))
 
                 continue
 
             # ❌ canceled file
             if final_file in self.canceled_files:
-                self._log(f"{self.i18n.t('downloader.log_ignore_canceled')} {tmp_file}", "NORMALIZE")
+                self._log(f"{self.i18n.t('downloader.log_ignore_canceled')} {tmp_file}", self.i18n.t("normalize"))
 
                 continue
 
             # ❌ locked folder or file
             if any(final_file.startswith(os.path.abspath(b)) for b in self.blocked_files):
-                self._log(f"{self.i18n.t('downloader.log_ignore_blocked')}: {final_file}", "NORMALIZE")
+                self._log(f"{self.i18n.t('downloader.log_ignore_blocked')}: {final_file}", self.i18n.t("normalize"))
 
                 try:
                     os.remove(tmp_file)
@@ -909,7 +909,7 @@ class Downloader:
 
             # ❌ Wrong file extension (not audio)
             if not tmp_file.lower().endswith(f".{self.audio_format.lower()}"):
-                self._log(f"{self.i18n.t('downloader.log_ignore_extension')} {tmp_file}", "NORMALIZE")
+                self._log(f"{self.i18n.t('downloader.log_ignore_extension')} {tmp_file}", self.i18n.t("normalize"))
 
                 os.makedirs(os.path.dirname(final_file), exist_ok=True)
                 shutil.move(tmp_file, final_file)
@@ -918,11 +918,11 @@ class Downloader:
 
             # ❌ already normalized
             if is_normalized(final_file):
-                self._log(f"{self.i18n.t('downloader.log_ignore_already_normalized')}: {final_file}", "NORMALIZE")
+                self._log(f"{self.i18n.t('downloader.log_ignore_already_normalized')}: {final_file}", self.i18n.t("normalize"))
 
                 continue
 
-            self._log(f"({index}/{len(files_to_process)}) {self.i18n.t('downloader.log_normalize_init')} {os.path.basename(tmp_file)}", "NORMALIZE")
+            self._log(f"({index}/{len(files_to_process)}) {self.i18n.t('downloader.log_normalize_init')} {os.path.basename(tmp_file)}", self.i18n.t("normalize"))
 
             try:
                 # 🎧 Normalize
@@ -939,14 +939,14 @@ class Downloader:
 
                 mark_as_normalized(final_file, -14.0)
 
-                self._log(f"OK → {final_file}", "NORMALIZE")
+                self._log(f"OK → {final_file}", self.i18n.t("normalize"))
 
                 if self.file_finished_hook:
                     self.file_finished_hook(final_file)
 
             except Exception as e:
-                self._error(f"[NORMALIZE][ERROR] {tmp_file}: {e}")
-                self._log(f"{tmp_file}: {e}", "NORMALIZE|ERROR")
+                self._error(f"[{self.i18n.t('normalize_error')}] {tmp_file}: {e}")
+                self._log(f"{tmp_file}: {e}", self.i18n.t("normalize_error"))
 
         # ===============================
         # 🔹 Move original videos
@@ -954,7 +954,7 @@ class Downloader:
         if self.keep_original_file:
             self._move_videos_from_tmp()
 
-        self._log(self.i18n.t("downloader.log_normalize_finish"), "NORMALIZE")
+        self._log(self.i18n.t("downloader.log_normalize_finish"), self.i18n.t("normalize"))
 
     # ===============================
     # Move original videos from TMP
@@ -992,11 +992,11 @@ class Downloader:
                         shutil.move(tmp_video, final_video)
                         self.generated_files.add(os.path.abspath(final_video))
 
-                        self._log(f"{self.i18n.t('downloader.log_move_tmp_kept')} {final_video}", "VIDEO")
+                        self._log(f"{self.i18n.t('downloader.log_move_tmp_kept')} {final_video}", self.i18n.t("video"))
 
                     except Exception as e:
-                        self._error(f"[VIDEO][ERROR] {tmp_video}: {e}")
-                        self._log(f"{tmp_video}: {e}", "VIDEO|ERROR")
+                        self._error(f"[{self.i18n.t('video_error')}] {tmp_video}: {e}")
+                        self._log(f"{tmp_video}: {e}", self.i18n.t("video_error"))
 
     # ===============================
     # Cleanup Methods
@@ -1030,10 +1030,10 @@ class Downloader:
                         try:
                             os.remove(part_path)
 
-                            self._log(f".part {self.i18n.t('downloader.log_cleanup')} {part_path}", "CLEANUP")
+                            self._log(f".part {self.i18n.t('downloader.log_cleanup')} {part_path}", self.i18n.t("cleanup"))
 
                         except Exception as e:
-                            self._log(f"{self.i18n.t('downloader.log_error_cleanup')} {part_path} — {e}", "ERROR")
+                            self._log(f"{self.i18n.t('downloader.log_error_cleanup')} {part_path} — {e}", self.i18n.t("error_level"))
 
         # =========================
         # 1️⃣ Remove canceled files
@@ -1060,10 +1060,10 @@ class Downloader:
                 try:
                     os.remove(file_path)
 
-                    self._log(f"{self.i18n.t('downloader.log_cleanup_intermediate')} {file_path}", "CLEANUP")
+                    self._log(f"{self.i18n.t('downloader.log_cleanup_intermediate')} {file_path}", self.i18n.t("cleanup"))
 
                 except OSError as e:
-                    self._log(f"{self.i18n.t('downloader.log_error_cleanup_intermediate')} {file_path} — {e}", "ERROR")
+                    self._log(f"{self.i18n.t('downloader.log_error_cleanup_intermediate')} {file_path} — {e}", self.i18n.t("error_level"))
 
                 self.generated_files.discard(file_path)
                 continue
@@ -1072,10 +1072,10 @@ class Downloader:
             if ext not in allowed_exts:
                 try:
                     os.remove(file_path)
-                    self._log(f"{self.i18n.t('downloader.log_cleanup_ext_not_allowed')} {file_path}", "CLEANUP")
+                    self._log(f"{self.i18n.t('downloader.log_cleanup_ext_not_allowed')} {file_path}", self.i18n.t("cleanup"))
 
                 except OSError as e:
-                    self._log(f"{self.i18n.t('downloader.log_error_cleanup_remove')} {file_path} — {e}", "ERROR")
+                    self._log(f"{self.i18n.t('downloader.log_error_cleanup_remove')} {file_path} — {e}", self.i18n.t("error_level"))
 
                 self.generated_files.discard(file_path)
 
@@ -1092,14 +1092,14 @@ class Downloader:
                 try:
                     os.remove(file_path)
 
-                    self._log(f"{self.i18n.t('downloader.log_delete_canceled')} {file_path}","CANCEL")
+                    self._log(f"{self.i18n.t('downloader.log_delete_canceled')} {file_path}",self.i18n.t("cancel_level"))
                     break
 
                 except PermissionError:
                     time.sleep(0.5)
 
             else:
-                self._log(f"{self.i18n.t('downloader.log_error_delete_canceled')} {file_path}", "CANCEL")
+                self._log(f"{self.i18n.t('downloader.log_error_delete_canceled')} {file_path}", self.i18n.t("cancel_level"))
 
             self.canceled_files.remove(file_path)
 
@@ -1115,7 +1115,7 @@ class Downloader:
             self.save_state(paused=self.paused)
 
         self._set_status(self.i18n.t("downloader.status_pause"))
-        self._log(self.i18n.t("downloader.log_pause"), "PAUSE")
+        self._log(self.i18n.t("downloader.log_pause"), self.i18n.t("pause_level"))
 
         self.pause_event.clear()
 
@@ -1126,7 +1126,7 @@ class Downloader:
         self._clear_state()
 
         self._set_status(self.i18n.t("downloader.status_resume"))
-        self._log(self.i18n.t("downloader.log_resume"), "RESUME")
+        self._log(self.i18n.t("downloader.log_resume"), self.i18n.t("resume_level"))
 
         self.pause_event.set()
 
@@ -1144,7 +1144,7 @@ class Downloader:
 
         # 🔒 Never save invalid state
         if not self.source_url and not self.selected_entries:
-            self._log(self.i18n.t("downloader.log_save_state_invalid"), "STATE")
+            self._log(self.i18n.t("downloader.log_save_state_invalid"), self.i18n.t("state"))
 
             return
 
@@ -1191,7 +1191,7 @@ class Downloader:
         with open(self.STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2, ensure_ascii=False)
 
-        self._log(f"{self.i18n.t('downloader.log_save_state')} ({self.i18n.t('paused')}={paused}, {self.i18n.t('mode')}={mode}): {self.STATE_FILE}", "STATE")
+        self._log(f"{self.i18n.t('downloader.log_save_state')} ({self.i18n.t('paused')}={paused}, {self.i18n.t('mode')}={mode}): {self.STATE_FILE}", self.i18n.t("state"))
 
     def _clear_state(self) -> None:
         """Clear saved downloader state."""
@@ -1199,7 +1199,7 @@ class Downloader:
         if os.path.exists(self.STATE_FILE):
             os.remove(self.STATE_FILE)
 
-            self._log(f"{self.i18n.t('downloader.log_clear_state')} {self.STATE_FILE}", "STATE")
+            self._log(f"{self.i18n.t('downloader.log_clear_state')} {self.STATE_FILE}", self.i18n.t("state"))
 
     def save_state_on_close(self) -> None:
         """Save current download state if active or paused (for UI close handling)."""
@@ -1265,17 +1265,6 @@ class Downloader:
         audio_exists: bool = os.path.exists(audio_path)
         video_exists: bool = os.path.exists(video_path)
 
-        # TODO REMOVE AT THE END
-        print("\n================ SHOULD DOWNLOAD ================")
-        print(f"BASE PATH           : {base_path}")
-        print(f"AUDIO PATH          : {audio_path}")
-        print(f"VIDEO PATH          : {video_path}")
-        print(f"AUDIO EXISTS        : {audio_exists}")
-        print(f"VIDEO EXISTS        : {video_exists}")
-        print(f"NORMALIZE ENABLED   : {self.normalize_enabled}")
-        print(f"KEEP ORIGINAL VIDEO : {self.keep_original_file}")
-        print("\n==================================================")
-
         # =====================================================
         # Normalize enabled
         # =====================================================
@@ -1287,7 +1276,7 @@ class Downloader:
                 normalized: bool = is_normalized(audio_path)
 
             except Exception as e:
-                self._log(f"ERROR: {str(e)}", "ERROR")
+                self._log(f"ERROR: {str(e)}", self.i18n.t("error_level"))
 
                 # Force download if LUFS check fails
                 return True
@@ -1323,7 +1312,7 @@ class Downloader:
             if not dirs and not files:
                 try:
                     os.rmdir(current)
-                    self._log(f"{self.i18n.t('downloader.log_cleanup_empty')} {current}", "CLEANUP")
+                    self._log(f"{self.i18n.t('downloader.log_cleanup_empty')} {current}", self.i18n.t("cleanup"))
 
                 except OSError:
                     pass
@@ -1335,10 +1324,10 @@ class Downloader:
             try:
                 shutil.rmtree(self.tmp_dir)
 
-                self._log(f"{self.i18n.t('downloader.log_cleanup_tmp_normalize')} {self.tmp_dir}", "CLEANUP")
+                self._log(f"{self.i18n.t('downloader.log_cleanup_tmp_normalize')} {self.tmp_dir}", self.i18n.t("cleanup"))
 
             except Exception as e:
-                self._log(f"{self.i18n.t('downloader.log_error_cleanup_tmp_normalize')} {e}", "ERROR")
+                self._log(f"{self.i18n.t('downloader.log_error_cleanup_tmp_normalize')} {e}", self.i18n.t("error_level"))
 
     # ===============================
     # Utility / helper methods
@@ -1355,6 +1344,9 @@ class Downloader:
 
         from datetime import datetime
 
+        if level == "INFO":
+            level: str = self.i18n.t("info")
+
         timestamp: str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         entry: str = f"[{timestamp}] {level}: {message}\n"
 
@@ -1362,6 +1354,10 @@ class Downloader:
             self.log_hook(entry)
 
     def log(self, message: str, level: str = "INFO") -> None:
+
+        if level == "INFO":
+            level: str = self.i18n.t("info")
+
         self._log(message, level)
 
     def  _set_status(self, message: str) -> None:
@@ -1398,10 +1394,10 @@ class Downloader:
         if self.tmp_playlist_dir and os.path.exists(self.tmp_playlist_dir):
             try:
                 shutil.rmtree(self.tmp_playlist_dir)
-                self._log(f"{self.i18n.t('downloader.log_cleanup_after_cancel_finished_folder')} {self.tmp_playlist_dir}", "CLEANUP")
+                self._log(f"{self.i18n.t('downloader.log_cleanup_after_cancel_finished_folder')} {self.tmp_playlist_dir}", self.i18n.t("cleanup"))
 
             except Exception as e:
-                self._log(f"{self.i18n.t('downloader.log_error_cleanup_after_cancel_finished')} {e}", "ERROR")
+                self._log(f"{self.i18n.t('downloader.log_error_cleanup_after_cancel_finished')} {e}", self.i18n.t("error_level"))
 
         # Cleanup temporary files (intermediate, .part, etc.)
         self._cleanup_files()
@@ -1419,10 +1415,10 @@ class Downloader:
 
         if self.cancel_requested:
             self._set_status(self.i18n.t("downloader.status_canceled"))
-            self._log(self.i18n.t("downloader.log_cleanup_after_cancel_finished"), "CANCEL")
+            self._log(self.i18n.t("downloader.log_cleanup_after_cancel_finished"), self.i18n.t("cancel_level"))
         else:
             self._set_status(self.i18n.t("downloader.status_canceled_finish"))
-            self._log(self.i18n.t("downloader.log_cleanup_after_cancel_finish"), "DONE")
+            self._log(self.i18n.t("downloader.log_cleanup_after_cancel_finish"), self.i18n.t("done"))
 
     def normalize_move_and_clean(self) -> None:
         """
@@ -1460,7 +1456,7 @@ class Downloader:
         if reason:
             msg += f" — {reason}"
 
-        self._log(msg, "WARNING")
+        self._log(msg, self.i18n.t("warning"))
 
         # Reset auth / retry state
         self.failed_video_id = None
@@ -1492,7 +1488,7 @@ class Downloader:
 
         self._log(
             f"{self.i18n.t('downloader.log_retrying')} {browser}",
-            "AUTH"
+            self.i18n.t("auth")
         )
         return True
 
@@ -1520,8 +1516,8 @@ class Downloader:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info: dict = ydl.extract_info(self.url, download=False)
 
-            if info and info.get("_type") == "url":
-                info: dict = ydl.extract_info(info["url"], download=False)
+        if info and info.get("_type") == "url":
+            info: dict = ydl.extract_info(info["url"], download=False)
 
         self._cached_info = info
         self._cached_flat = flat
@@ -1543,7 +1539,7 @@ class Downloader:
 
         self._log(
             f"{self.i18n.t('downloader.log_retrying')}: {browser}",
-            "AUTH"
+            self.i18n.t("auth")
         )
 
         self._auth_retry_index += 1
@@ -1566,7 +1562,7 @@ class Downloader:
         self._retrying_auth = True
 
         if not self._apply_browser_cookie():
-            self._log(self.i18n.t("downloader.log_retrying_failed"), "AUTH")
+            self._log(self.i18n.t("downloader.log_retrying_failed"), self.i18n.t("auth"))
             raise RuntimeError("AUTH_FAILED")
 
         # 🔥 rebuild ydl opts WITH cookies
@@ -1652,7 +1648,7 @@ class Downloader:
         return entries
 
     def notify_restricted(self, msg: str):
-        self._log(msg, "SKIP")
+        self._log(msg, self.i18n.t("skip"))
 
         if self.status_hook:
             self.status_hook(self.i18n.t("downloader.status_notify_restricted"))
@@ -1675,10 +1671,10 @@ class Downloader:
 
                 try:
                     shutil.rmtree(path)
-                    self._log(f"{self.i18n.t('downloader.log_cleanup_orphan_tmps')} {path}", "CLEANUP")
+                    self._log(f"{self.i18n.t('downloader.log_cleanup_orphan_tmps')} {path}", self.i18n.t("cleanup"))
 
                 except Exception as e:
-                    self._log(f"{self.i18n.t('downloader.log_error_cleanup_orphan_tmps')} {path} — {e}", "ERROR")
+                    self._log(f"{self.i18n.t('downloader.log_error_cleanup_orphan_tmps')} {path} — {e}", self.i18n.t("error_level"))
 
     def _build_format_string(self) -> str:
         resolution_map = {
