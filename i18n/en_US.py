@@ -30,6 +30,7 @@ TRANSLATIONS = {
     "help": "Open help",
     "theme": "Toggle theme",
     "lang": "Toggle language",
+    "playlist_selection_title": "Select playlist videos",
 
     "app.window.log_validate_url": "No URL provided",
     "app.window.log_on_cancel_clicked_playlist": "⏭️ Cancellation requested: waiting for current item to finish.",
@@ -161,6 +162,7 @@ TRANSLATIONS = {
     "download_error": "Download Error",
     "yes": "Yes",
     "no": "No",
+    "open_folder_error": "The folder could not be opened:",
 
     "log.no_url": "No URL provided",
     "log.invalid_url": "Invalid URL",

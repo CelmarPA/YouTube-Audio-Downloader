@@ -9,11 +9,31 @@ from utils.window import center_window, set_window_icon
 
 
 class HelpWindow(tk.Toplevel):
-    def __init__(self, parent, help_text: dict, theme: dict):
+    """
+    Help and documentation window.
+
+    This window displays usage instructions, features, tips,
+    and external links for the application. It is modal and
+    scrollable to support long content.
+    """
+
+    def __init__(self, parent: tk.Widget, help_text: dict, theme: dict):
+        """
+        Initialize the help window.
+
+        :param parent: Parent window instance.
+        :type parent: tk.Widget
+        :param help_text: Dictionary containing localized help content.
+        :type help_text: dict
+        :param theme: Dictionary containing theme colors.
+        :type theme: dict
+        """
+
         super().__init__(parent)
 
-        self.theme = theme
+        self.theme: dict = theme
 
+        # Window configuration
         self.title(help_text["title"])
         self.geometry("650x720")
         set_window_icon(self)
@@ -27,7 +47,7 @@ class HelpWindow(tk.Toplevel):
         # ===============================
         # Styles (isolated & safe)
         # ===============================
-        style = ttk.Style(self)
+        style: ttk.Style = ttk.Style(self)
 
         style.configure(
             "HelpTitle.TLabel",
@@ -64,22 +84,22 @@ class HelpWindow(tk.Toplevel):
         # ===============================
         # Layout with scroll
         # ===============================
-        container = ttk.Frame(self, padding=15)
+        container: ttk.Frame = ttk.Frame(self, padding=15)
         container.pack(fill="both", expand=True)
 
-        self.canvas = tk.Canvas(
+        self.canvas: tk.Canvas = tk.Canvas(
             container,
             bg=theme["bg"],
             highlightthickness=0
         )
 
-        scrollbar = ttk.Scrollbar(
+        scrollbar: ttk.Scrollbar = ttk.Scrollbar(
             container,
             orient="vertical",
             command=self.canvas.yview
         )
 
-        content = ttk.Frame(self.canvas)
+        content: ttk.Frame = ttk.Frame(self.canvas)
 
         content.bind(
             "<Configure>",
@@ -155,7 +175,7 @@ class HelpWindow(tk.Toplevel):
         # ===============================
         # GitHub link
         # ===============================
-        git_frame = ttk.Frame(content)
+        git_frame: ttk.Frame = ttk.Frame(content)
         git_frame.pack(anchor="w")
 
         ttk.Label(
@@ -164,7 +184,8 @@ class HelpWindow(tk.Toplevel):
             style="HelpText.TLabel"
         ).pack(side="left")
 
-        link = ttk.Label(
+        # Open GitHub URL in the default browser
+        link: ttk.Label = ttk.Label(
             git_frame,
             text=help_text["git_url"],
             style="HelpLink.TLabel",
@@ -186,13 +207,22 @@ class HelpWindow(tk.Toplevel):
             command=self.destroy
         ).pack(pady=20)
 
-
-
     # ===============================
     # Sections helper
     # ===============================
     @staticmethod
-    def _section(parent, title, items):
+    def _section(parent: tk.Widget, title: str, items: list) -> None:
+        """
+        Render a help section with a title and multiple text items.
+
+        :param parent: Parent container widget.
+        :type parent: tk.Widget
+        :param title: Section title text.
+        :type title: str
+        :param items: List of text entries for the section.
+        :type items: list
+        """
+
         ttk.Label(
             parent,
             text=title,
@@ -212,12 +242,27 @@ class HelpWindow(tk.Toplevel):
     # Mouse wheel handlers
     # ===============================
     def _bind_mousewheel(self, _=None):
+        """
+        Enable mouse wheel scrolling when the cursor enters the window.
+        """
+
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
     def _unbind_mousewheel(self, _=None):
+        """
+        Disable mouse wheel scrolling when the cursor leaves the window.
+        """
+
         self.canvas.unbind_all("<MouseWheel>")
 
     def _on_mousewheel(self, event):
+        """
+        Scroll the canvas vertically using the mouse wheel.
+
+        :param event: Mouse wheel event.
+        :type event: tk.Event
+        """
+
         self.canvas.yview_scroll(
             int(-1 * (event.delta / 120)),
             "units"

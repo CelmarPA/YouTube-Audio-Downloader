@@ -39,25 +39,49 @@ class AppWindow(tk.Tk):
     """
 
     def __init__(self) -> None:
+        """
+        Initialize the main application window.
+
+        Loads configuration, initializes internationalization,
+        prepares UI state variables, builds the interface,
+        applies the selected theme, and restores any paused
+        download session if available.
+        """
+
         super().__init__()
 
+        # -----------------------------
+        # Application configuration
+        # -----------------------------
         self.config: dict = load_config()
 
         self.language: str = self.config.get("language", "en-US")
 
         self.i18n: I18nManager = I18nManager(language=self.language)
 
+        # -----------------------------
+        # Language flag icons
+        # -----------------------------
         self.flag_icons = {
             "pt-BR": tk.PhotoImage(file=resource_path(r"assets\br_icon.png")),
             "en-US": tk.PhotoImage(file=resource_path(r"assets\us_icon.png")),
         }
 
+        # -----------------------------
+        # Core controllers
+        # -----------------------------
         self.controller: DownloadController = DownloadController(self)
         self.playlist_frame: PlaylistFrame = PlaylistFrame
 
+        # -----------------------------
+        # External callbacks (optional)
+        # -----------------------------
         self.on_download_requested: Optional[Callable[[str], None]] = None
         self.on_playlist_requested: Optional[Callable[[str], None]] = None
 
+        # -----------------------------
+        # Tkinter state variables
+        # -----------------------------
         self.audio_format_var: tk.StringVar = tk.StringVar(value="mp3")
         self.audio_quality_var: tk.StringVar = tk.StringVar(value="192")
         self.output_path_var: tk.StringVar = tk.StringVar(value=DOWNLOAD_DIR)
@@ -66,46 +90,75 @@ class AppWindow(tk.Tk):
         self.keep_original_var: tk.BooleanVar = tk.BooleanVar(value=False)
         self.normalize_var: tk.BooleanVar = tk.BooleanVar(value=False)
 
+        # -----------------------------
+        # Window configuration
+        # -----------------------------
         self.title('YouTube Audio Downloader')
         self.geometry("850x500")
         self.minsize(850, 500)
 
         set_window_icon(self)
 
+        # -----------------------------
+        # Theme state
+        # -----------------------------
         self.theme: str = self.config.get("theme", "light")
 
+        # -----------------------------
+        # Control buttons (initialized later)
+        # -----------------------------
         self.pause_resume_button: ttk.Button = None
         self.cancel_button: ttk.Button = None
 
-        self._ckb_bg = None
-        self._ckb_fg = None
-        self._ckb_active_bg = None
-        self._ckb_indicator_bg = None
-        self._ckb_indicator_fg = None
-        self._ckb_selectcolor = None
+        # -----------------------------
+        # Checkbutton color placeholders
+        # -----------------------------
+        self._ckb_bg: str = None
+        self._ckb_fg: str = None
+        self._ckb_active_bg: str = None
+        self._ckb_indicator_bg: str = None
+        self._ckb_indicator_fg: str = None
+        self._ckb_selectcolor: str = None
 
+        # -----------------------------
+        # Status & progress state
+        # -----------------------------
         self.status_var: tk.StringVar = tk.StringVar(value=self.i18n.t("ready"))
         self.progress_var: tk.DoubleVar = tk.DoubleVar(value=0)
         self.saved_selection: dict = None
         self.selected_resolution: tk.StringVar = tk.StringVar(value="Auto")
+
+        # -----------------------------
+        # UI initialization
+        # -----------------------------
         self._configure_style()
         self._build_ui()
         self._apply_theme()
 
         self._update_resolution_state()
 
+        # -----------------------------
+        # Download control state
+        # -----------------------------
         self.is_paused: bool = False
 
-        # =============================
+        # -----------------------------
         # Global download status
-        # =============================
-        self.STATE_DIR: str = os.path.join(os.path.dirname(__file__), "..", "download_state")
+        # -----------------------------
+        self.STATE_DIR: str = os.path.join(
+            os.path.dirname(__file__), "..", "download_state"
+        )
         os.makedirs(self.STATE_DIR, exist_ok=True)
-        self.STATE_FILE: str = os.path.join(self.STATE_DIR, "download_state.json")
 
-        # ===== When starting the application =====
+        self.STATE_FILE: str = os.path.join(
+            self.STATE_DIR, "download_state.json"
+        )
+
+        # -----------------------------
+        # Resume previous session
+        # -----------------------------
         if os.path.exists(self.STATE_FILE):
-            # If there is a paused download
+            # Ask user whether to resume paused download
             resume: bool = ThemedMessageBox.ask_yes_no(
                 parent=self,
                 title=self.i18n.t("app.window.state_to_resume_title"),
@@ -114,20 +167,29 @@ class AppWindow(tk.Tk):
             )
 
             if resume:
-                # Marks that the app is resuming from a crash
+                # Resume interrupted download session
                 self._resume_from_state(self.STATE_FILE)
 
             else:
-                # User chose not to resume → cleanup
+                # User declined resume → cleanup persisted state
                 self._on_no_resume()
 
+        # -----------------------------
+        # Window close handler
+        # -----------------------------
         self.protocol("WM_DELETE_WINDOW", self.on_window_close)
 
     # =========================
     # UI BUILDING
     # =========================
     def _build_ui(self) -> None:
-        """Build all UI components."""
+        """
+        Build all UI components.
+
+        This method orchestrates the construction of the entire
+        graphical interface by calling each UI section builder
+        in the correct visual order.
+        """
 
         self._build_header()
         self._build_url_section()
@@ -141,8 +203,9 @@ class AppWindow(tk.Tk):
         """
         Build the application header.
 
-        This section displays the application title and provides
-        quick-access controls, such as the light/dark theme toggle button.
+        Displays the application title and provides access to
+        global controls such as help, language switching,
+        and theme toggling.
         """
 
         header: ttk.Frame = ttk.Frame(self)
@@ -163,7 +226,7 @@ class AppWindow(tk.Tk):
         Tooltip(self.help_btn, self.i18n.t("help"))
 
         # Langauge toggle button
-        self.lang_btn = ttk.Button(
+        self.lang_btn: ttk.Button = ttk.Button(
             header,
             image=self.flag_icons[self.language],
             width=3,
@@ -187,19 +250,26 @@ class AppWindow(tk.Tk):
         Tooltip(self.theme_btn, self.i18n.t("theme"))
 
     def _build_url_section(self) -> None:
-        frame = ttk.Frame(self)
+        """
+        Build the URL input section.
+
+        Contains the URL entry field and a clipboard paste
+        button for quick user input.
+        """
+
+        frame: ttk.Frame = ttk.Frame(self)
         frame.pack(fill="x", padx=10, pady=10)
 
         ttk.Label(frame, text=self.i18n.t("url")).grid(
             row=0, column=0, columnspan=3, sticky="w"
         )
 
-        self.url_entry = ttk.Entry(frame)
+        self.url_entry: ttk.Entry = ttk.Entry(frame)
         self.url_entry.grid(
             row=1, column=0, sticky="ew", padx=(0, 5)
         )
 
-        paste_btn = ttk.Button(
+        paste_btn: ttk.Button = ttk.Button(
             frame,
             text="📋",
             width=4,
@@ -215,8 +285,11 @@ class AppWindow(tk.Tk):
 
     def _build_options(self) -> None:
         """
-        Build additional options section including audio format, quality,
-        and user-selectable options: Playlist, Keep Original, Normalize Audio.
+        Build the options section.
+
+        Includes audio format selection, audio quality,
+        playlist mode, normalization option, original
+        file preservation, and video resolution selection.
         """
 
         frame: ttk.Frame = ttk.Frame(self, height=30)
@@ -262,7 +335,7 @@ class AppWindow(tk.Tk):
         # -------------------------
         # Checkbuttons for extra options
         # -------------------------
-        self.playlist_ckb = tk.Checkbutton(
+        self.playlist_ckb: tk.Checkbutton = tk.Checkbutton(
             frame,
             text=self.i18n.t("playlist"),
             variable=self.playlist_var
@@ -293,7 +366,7 @@ class AppWindow(tk.Tk):
 
         ttk.Label(frame, text=self.i18n.t("resolution_label")).pack(side="left", padx=(0, 5))
 
-        self.resolution_cb = ttk.Combobox(
+        self.resolution_cb: ttk.Combobox = ttk.Combobox(
             frame,
             textvariable=self.selected_resolution,
             values=["Auto", "480p", "720p", "1080p"],
@@ -362,14 +435,22 @@ class AppWindow(tk.Tk):
         Tooltip(self.open_btn, self.i18n.t("open"))
 
     def _build_save_folder(self) -> None:
-        frame = ttk.Frame(self)
+        """
+        Build the output folder selection section.
+
+        Provides a text entry displaying the current
+        output directory and a button that opens a
+        folder chooser dialog.
+        """
+
+        frame: ttk.Frame = ttk.Frame(self)
         frame.pack(fill="x", padx=10, pady=5)
 
         ttk.Label(frame, text=self.i18n.t("save_in_label")).grid(
             row=0, column=0, columnspan=3, sticky="w"
         )
 
-        self.output_entry = ttk.Entry(
+        self.output_entry: ttk.Entry = ttk.Entry(
             frame,
             textvariable=self.output_path_var
         )
@@ -377,7 +458,7 @@ class AppWindow(tk.Tk):
             row=1, column=0, sticky="ew", padx=(0, 5)
         )
 
-        choose_btn = ttk.Button(
+        choose_btn: ttk.Button = ttk.Button(
             frame,
             text=self.i18n.t("choose_label"),
             width=10,
@@ -420,10 +501,10 @@ class AppWindow(tk.Tk):
         # ===============================
         # Log area with scrollbar
         # ===============================
-        log_frame = ttk.Frame(container)
+        log_frame: ttk.Frame = ttk.Frame(container)
         log_frame.pack(fill="both", expand=True, pady=(5, 0))
 
-        scrollbar = ttk.Scrollbar(log_frame, orient="vertical")
+        scrollbar: ttk.Scrollbar = ttk.Scrollbar(log_frame, orient="vertical")
 
         self.log_text: tk.Text = tk.Text(
             log_frame,
@@ -480,6 +561,9 @@ class AppWindow(tk.Tk):
         Paste text from the system clipboard into the URL entry.
 
         Safely handles empty or unavailable clipboard content.
+
+        :param _: Optional Tkinter event (unused).
+        :type _: Optional[tk.Event]
         """
 
         try:
@@ -487,6 +571,7 @@ class AppWindow(tk.Tk):
             self.url_entry.insert(0, self.clipboard_get())
 
         except tk.TclError:
+            # Clipboard unavailable or empty
             pass
 
     def _toggle_log(self) -> None:
@@ -508,15 +593,15 @@ class AppWindow(tk.Tk):
         Toggle between light and dark application themes.
         """
 
-        self.theme = "dark" if self.theme == "light" else "light"
+        self.theme: str = "dark" if self.theme == "light" else "light"
         self._apply_theme()
 
     def _configure_style(self) -> None:
         """
-        Configure the base ttk styling.
+        Configure the base ttk style.
 
-        Uses the default ttk theme as a foundation for
-        custom light and dark themes.
+        Initializes the default ttk theme and prepares
+        the style object for later customization.
         """
 
         self.style: ttk.Style = ttk.Style(self)
@@ -526,56 +611,59 @@ class AppWindow(tk.Tk):
         """
         Apply the current theme colors to the main window.
 
-        Adjusts background and foreground colors dynamically based on the
-        selected theme. Updates main window, child widgets, and ttk styles.
+        Updates background, foreground, entry fields, buttons,
+        checkbuttons, ttk styles, and recursively applies colors
+        to child widgets.
         """
 
-        config = load_config()
+        config: dict = load_config()
         config["theme"] = self.theme
         save_config(config)
 
         if self.theme == "dark":
-            bg = "#1e1e1e"
-            fg = "#ffffff"
-            entry_bg = "#2e2e2e"
-            entry_fg = "#ffffff"
-            btn_bg = "#3a3a3a"
-            btn_fg = "#ffffff"
-            btn_hover_bg = "#505050"
-            ckb_bg = bg
-            ckb_fg = fg
-            ckb_hover_bg = "#333333"
+            bg: str = "#1e1e1e"
+            fg: str = "#ffffff"
+            entry_bg: str = "#2e2e2e"
+            entry_fg: str = "#ffffff"
+            btn_bg: str = "#3a3a3a"
+            btn_fg: str = "#ffffff"
+            btn_hover_bg: str = "#505050"
+            ckb_bg: str = bg
+            ckb_fg: str = fg
+            ckb_hover_bg: str = "#333333"
         else:
-            bg = "#f5f5f5"
-            fg = "#000000"
-            entry_bg = "#ffffff"
-            entry_fg = "#000000"
-            btn_bg = "#e0e0e0"
-            btn_fg = "#000000"
-            btn_hover_bg = "#c0c0c0"
-            ckb_bg = "#f5f5f5"
-            ckb_fg = "#000000"
-            ckb_hover_bg = "#e8e8e8"
+            bg: str = "#f5f5f5"
+            fg: str = "#000000"
+            entry_bg: str = "#ffffff"
+            entry_fg: str = "#000000"
+            btn_bg: str = "#e0e0e0"
+            btn_fg: str = "#000000"
+            btn_hover_bg: str = "#c0c0c0"
+            ckb_bg: str = "#f5f5f5"
+            ckb_fg: str = "#000000"
+            ckb_hover_bg: str = "#e8e8e8"
 
-        self.bg = bg
-        self.fg = fg
-        self.entry_bg = entry_bg
-        self.entry_fg = entry_fg
-        self.btn_bg = btn_bg
-        self.btn_fg = btn_fg
+        # Store theme colors
+        self.bg: str = bg
+        self.fg: str = fg
+        self.entry_bg: str = entry_bg
+        self.entry_fg: str = entry_fg
+        self.btn_bg: str = btn_bg
+        self.btn_fg: str = btn_fg
 
-        self._ckb_bg = ckb_bg
-        self._ckb_fg = ckb_fg
-        self._ckb_active_bg = ckb_hover_bg
-        self._ckb_indicator_bg = entry_bg
-        self._ckb_indicator_fg = fg
-        self._ckb_selectcolor = entry_bg
+        # Checkbutton style colors
+        self._ckb_bg: str = ckb_bg
+        self._ckb_fg: str = ckb_fg
+        self._ckb_active_bg: str = ckb_hover_bg
+        self._ckb_indicator_bg: str = entry_bg
+        self._ckb_indicator_fg: str = fg
+        self._ckb_selectcolor: str = entry_bg
 
         # Main window background
         self.configure(bg=bg)
 
-        # Configure ttk styles
-        style = self.style
+        # ttk styles
+        style: ttk.Style = self.style
         style.configure("TFrame", background=bg)
         style.configure("TLabel", background=bg, foreground=fg)
         style.configure(
@@ -596,7 +684,7 @@ class AppWindow(tk.Tk):
             foreground=[("active", btn_fg)]
         )
 
-        # Recursively apply colors to child widgets (for non-ttk widgets)
+        # Recursively apply colors to non-ttk widgets
         def _recursive_apply(widget):
             for child in widget.winfo_children():
                 cls = child.winfo_class()
@@ -618,6 +706,7 @@ class AppWindow(tk.Tk):
 
         _recursive_apply(self)
 
+        # Reapply custom checkbutton styles
         def _reapply_checkbuttons(widget):
             for child in widget.winfo_children():
                 if isinstance(child, tk.Checkbutton):
@@ -627,6 +716,13 @@ class AppWindow(tk.Tk):
         _reapply_checkbuttons(self)
 
     def style_tk_checkbutton(self, chk: tk.Checkbutton) -> None:
+        """
+        Apply consistent styling to a Tkinter Checkbutton.
+
+        :param chk: Checkbutton widget to be styled.
+        :type chk: tk.Checkbutton
+        """
+
         chk.configure(
             background=self._ckb_bg,
             foreground=self._ckb_fg,
@@ -646,21 +742,40 @@ class AppWindow(tk.Tk):
     # Download
     # =========================
     def start_download(self) -> None:
+        """
+        Start the download process.
+
+        Validates the URL, updates UI state, resets progress indicators,
+        and starts the download process in a background thread.
+        """
+
         url: str = self.url_entry.get().strip()
 
+        # Validate URL before starting download
         if not self._validate_url(url):
             return
 
+        # Update UI state to downloading mode
         self.set_downloading_state()
 
         self.progress_var.set(0)
         self.status_var.set(self.i18n.t("initiating"))
 
+        # Run download asynchronously to avoid blocking the UI
         Thread(target=self.run_download, daemon=True).start()
 
     def run_download(self) -> None:
+        """
+        Execute the download process.
+
+        Builds the options dictionary and delegates the download logic
+        to the DownloadController.
+        """
+
+        # Ensure output directory exists
         os.makedirs(self.output_path_var.get(), exist_ok=True)
 
+        # Build download options
         options: dict = {
             "output_path": self.output_path.strip(),
             "audio_format": self.audio_format_var.get(),
@@ -681,6 +796,7 @@ class AppWindow(tk.Tk):
 
         url: str = self.url_entry.get().strip()
 
+        # Delegate download execution to controller
         self.controller.download(url, options)
 
     # =========================
@@ -690,20 +806,20 @@ class AppWindow(tk.Tk):
         """
         Write a message to the log output area.
 
-        The log entry is timestamped and displayed in the
-        application's log panel. This method is designed
-        to be easily extended in the future to support
-        file logging or external logging systems.
+        Each log entry is timestamped and appended to the
+        log text widget.
 
-        Args:
-            message (str): The message to be logged.
-            level (str): Log level (e.g., INFO, WARNING, ERROR).
+        :param message: The message to be logged.
+        :type message: str
+        :param level: Log level identifier (e.g., INFO, WARNING, ERROR).
+        :type level: str
         """
 
         from datetime import datetime
 
         timestamp: str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
+        # Automatically format message if no level is embedded
         if "level" not in message:
             entry: str = f"[{timestamp}] {level}: {message}\n"
 
@@ -722,15 +838,13 @@ class AppWindow(tk.Tk):
         """
         Validate whether the provided URL appears to be a valid YouTube URL.
 
-        This method performs a lightweight validation to prevent
-        empty inputs or obviously invalid URLs from triggering
-        download actions.
+        Performs basic validation to prevent empty or malformed URLs
+        from triggering download actions.
 
-        Args:
-            url (str): URL entered by the user.
-
-        Returns:
-            bool: True if the URL is valid enough to proceed, False otherwise.
+        :param url: URL entered by the user.
+        :type url: str
+        :return: True if the URL is valid enough to proceed.
+        :rtype: bool
         """
 
         if not url:
@@ -750,13 +864,12 @@ class AppWindow(tk.Tk):
     @staticmethod
     def _looks_like_youtube_url(url: str) -> bool:
         """
-        Check if the URL matches common YouTube URL patterns.
+        Check whether the given URL matches common YouTube URL patterns.
 
-        Args:
-            url (str): URL to check.
-
-        Returns:
-            bool: True if URL resembles a YouTube URL.
+        :param url: URL to validate.
+        :type url: str
+        :return: True if the URL resembles a YouTube URL.
+        :rtype: bool
         """
 
         import re
@@ -765,13 +878,12 @@ class AppWindow(tk.Tk):
 
         return bool(re.match(pattern, url))
 
-
     def _show_error(self, message: str) -> None:
         """
-        Display an error message dialog to the user.
+        Display an error dialog to the user.
 
-        Args:
-            message (str): Error message to display.
+        :param message: Error message to display.
+        :type message: str
         """
 
         ThemedMessageBox.show_error(
@@ -783,16 +895,18 @@ class AppWindow(tk.Tk):
 
     def _set_status(self, message: str) -> None:
         """
-       Update the application status message.
+        Update the application status message.
 
-       :param message: Status text to display.
-       :type message: str
-       """
+        :param message: Status text to display.
+        :type message: str
+        """
 
         self.status_var.set(message)
 
     def _choose_folder(self) -> None:
-        """Open a folder selection dialog and update the output path."""
+        """
+        Open a folder selection dialog and update the output path.
+        """
 
         folder: Optional[str] = choose_folder()
 
@@ -800,28 +914,42 @@ class AppWindow(tk.Tk):
             self.output_path_var.set(folder)
 
     def _open_folder(self) -> None:
-        """Open the current output folder in the system file explorer."""
+        """
+        Open the current output folder in the system file explorer.
+        """
 
-        open_download_folder(self.output_path_var.get())
+        open_download_folder(parent=self, theme=self.get_theme_context(), path=self.output_path_var.get())
 
     def on_pause_resume_clicked(self) -> None:
+        """
+        Handle pause/resume button clicks.
+
+        Toggles the download state between paused and resumed.
+        """
+
         if not self.is_paused:
-            # Pause
+            # Pause download
             self.controller.pause()
             self.is_paused = True
             self.pause_resume_btn.config(text=self.i18n.t("resume"))
 
         else:
-            # Resume
+            # Resume download
             self.controller.resume()
             self.is_paused = False
             self.pause_resume_btn.config(text=self.i18n.t("pause"))
 
     def on_cancel_clicked(self) -> None:
+        """
+        Handle cancel button click.
+
+        Supports both playlist and single-item cancellation flows.
+        """
+
         if not hasattr(self, "controller") or not self.controller:
             return
 
-        # Playlist
+        # Playlist cancellation flow
         if self.playlist_var.get():
             confirm = ThemedMessageBox.ask_yes_no(
                 parent=self,
@@ -841,16 +969,31 @@ class AppWindow(tk.Tk):
                 level=self.i18n.t("cancel_level")
             )
 
-        # Single
+        # Single item cancellation flow
         else:
             self.controller.cancel(after_current=False)
 
-            self.status_var.set(self.i18n.t("app.window.status_on_cancel_clicked_single"))
-            self._log(self.i18n.t("app.window.log_on_cancel_clicked_single"), level=self.i18n.t("cancel_level"))
+            self.status_var.set(
+                self.i18n.t("app.window.status_on_cancel_clicked_single")
+            )
+            self._log(
+                self.i18n.t("app.window.log_on_cancel_clicked_single"),
+                level=self.i18n.t("cancel_level")
+            )
 
         self.cancel_btn.config(state="disabled")
 
     def _resume_from_state(self, path: str) -> None:
+        """
+        Restore application state from a saved state file.
+
+        If the state indicates that the download was paused,
+        the download process is resumed automatically.
+
+        :param path: Path to the saved state file.
+        :type path: str
+        """
+
         import json
 
         if not os.path.exists(path):
@@ -877,40 +1020,33 @@ class AppWindow(tk.Tk):
         self.playlist_var.set(state.get("allow_playlist", False))
         self.keep_original_var.set(state.get("keep_original", False))
         self.normalize_var.set(state.get("normalize_enabled", False))
-        self.output_path_var.set(state.get("output_path", download_dir))
+        self.output_path_var.set(state.get("output_path", DOWNLOAD_DIR))
         self.selected_resolution.set(state.get("resolution", "Auto"))
 
         self.saved_selection = state.get("playlist_selection")
 
         paused: bool = state.get("paused", False)
-        mode: str = state.get("mode", "single")
-
-        print(mode)
 
         # ===============================
         # Decide resume behavior
         # ===============================
         if not paused:
-            print(paused)
-            # 🔥 NEVER auto-start if not paused
             return
 
         # ===============================
-        # Resume logic by mode
+        # Resume logic
         # ===============================
-        if mode == "single":
-            self.start_download()
-
-        elif mode == "playlist":
-            self.start_download()
-
-        else:
-            # Unknown mode → safest behavior
-            return
+        self.start_download()
 
     def on_window_close(self):
+        """
+        Handle application window close event.
 
-        if hasattr(self, "downloader") and self.downloader:
+        Ensures that the current download state is saved
+        before destroying the window.
+        """
+
+        if hasattr(self, "controller") and self.controller:
             try:
                 # Saves status only if download is active or paused
                 self.controller.on_window_close()
@@ -922,7 +1058,12 @@ class AppWindow(tk.Tk):
         self.destroy()
 
     def _on_no_resume(self):
-        """Action taken when the user decides not to resume the paused download."""
+        """
+        Handle the action when the user chooses not to resume
+        a previously paused download.
+
+        Removes the saved state file and logs the action.
+        """
 
         try:
             os.remove(self.STATE_FILE)
@@ -1016,6 +1157,8 @@ class AppWindow(tk.Tk):
         Displays a warning message explaining that YouTube MIX playlists
         cannot be downloaded as regular playlists.
         """
+
+
         ThemedMessageBox.show_warning(
             parent=self,
             title=self.i18n.t("app.window.show_mix_warming_title"),
@@ -1068,13 +1211,18 @@ class AppWindow(tk.Tk):
         self.cancel_btn.config(state="disabled")
 
     def _on_resolution_change(self):
+        """
+        Update the selected resolution based on the combobox value.
+        """
+
         self.selected_resolution.set(self.resolution_cb.get())
 
     def _update_resolution_state(self) -> None:
         """
-
-        :return:
+        Enable or disable resolution selection depending on
+        the 'keep original' option state.
         """
+
         can_select_resolution: bool = self.keep_original_var.get()
 
         if can_select_resolution:
@@ -1085,9 +1233,14 @@ class AppWindow(tk.Tk):
             self.resolution_cb.config(state="disabled")
 
     def on_language_clicked(self) -> None:
-        new_lang = "pt-BR" if self.language == "en-US" else "en-US"
+        """
+        Toggle application language and request application restart
+        to apply the new language settings.
+        """
 
-        config = load_config()
+        new_lang: str = "pt-BR" if self.language == "en-US" else "en-US"
+
+        config: dict = load_config()
         config["language"] = new_lang
         config["theme"] = self.theme
         save_config(config)
@@ -1095,7 +1248,14 @@ class AppWindow(tk.Tk):
         self._show_restart_dialog()
 
     def _show_restart_dialog(self) -> None:
-        result = ThemedMessageBox.ask_yes_no(
+        """
+        Display a confirmation dialog asking the user to restart the application.
+
+        If the user confirms, the application restart process is triggered
+        to apply configuration changes such as language or theme updates.
+        """
+
+        result: ThemedMessageBox = ThemedMessageBox.ask_yes_no(
             parent=self,
             title=self.i18n.t("app.window.show_restart_title"),
             message=self.i18n.t("app.window.show_restart"),
@@ -1106,6 +1266,12 @@ class AppWindow(tk.Tk):
             self._restart_app()
 
     def _restart_app(self, dialog=None):
+        """
+        Restart the application process.
+
+        Handles both frozen (packaged) and development environments.
+        """
+
         if dialog:
             dialog.destroy()
 
@@ -1131,6 +1297,10 @@ class AppWindow(tk.Tk):
         sys.exit(0)
 
     def _open_help(self):
+        """
+        Open the help window displaying application usage instructions.
+        """
+
         HelpWindow(
             parent=self,
             help_text=self.i18n.help_text("HELP_TEXT"),
@@ -1143,6 +1313,16 @@ class AppWindow(tk.Tk):
         )
 
     def get_theme_context(self) -> dict:
+        """
+        Return the current theme context used by themed dialogs.
+
+        This context provides the base colors required by
+        ThemedMessageBox and other auxiliary UI components.
+
+        :return: Dictionary containing theme colors.
+        :rtype: dict
+        """
+
         theme: dict = {
             "bg": self.bg,
             "fg": self.fg,
@@ -1153,4 +1333,10 @@ class AppWindow(tk.Tk):
         return theme
 
     def _on_log_mousewheel(self, event):
+        """
+        Handle mouse wheel scrolling for the log text widget.
+
+        :param event: Mouse wheel event.
+        """
+
         self.log_text.yview_scroll(int(-1 * (event.delta / 120)), "units")

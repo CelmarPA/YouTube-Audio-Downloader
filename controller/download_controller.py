@@ -30,7 +30,24 @@ class DownloadController:
         file_finished_hook: Optional[Callable[[str], None]] = None,
         error_hook: Optional[Callable[[str], None]] = None,
         log_hook: Optional[Callable[[str], None]] = None,
-    ):
+    ) -> None:
+        """
+        Initialize the download controller.
+
+        :param app_window: Main application window instance.
+        :type app_window: AppWindow
+        :param progress_hook: Callback for progress updates.
+        :type progress_hook: Callable or None
+        :param status_hook: Callback for status messages.
+        :type status_hook: Callable or None
+        :param file_finished_hook: Callback triggered when a file finishes downloading.
+        :type file_finished_hook: Callable or None
+        :param error_hook: Callback for error notifications.
+        :type error_hook: Callable or None
+        :param log_hook: Callback for log messages.
+        :type log_hook: Callable or None
+        """
+
         self.app_window = app_window
 
         # Current downloader instance
@@ -67,7 +84,7 @@ class DownloadController:
         """
 
         if self.active:
-            return  # safety: avoid double start
+            return  # Safety check to avoid double start
 
         self.active: bool = True
         self.paused: bool = False
@@ -80,7 +97,10 @@ class DownloadController:
         self.thread.start()
 
     def pause(self) -> None:
-        """Pause the active download or defer pause if downloader is not ready."""
+        """
+        Pause the active download.
+        If the downloader is not yet initialized, the pause is deferred.
+        """
 
         # Downloader nor ready yet → defer pause
         if not self.downloader:
@@ -95,7 +115,9 @@ class DownloadController:
         self.paused = True
 
     def resume(self) -> None:
-        """Resume a paused download."""
+        """
+        Resume a previously paused download.
+        """
 
         if not self.downloader or not self.paused:
             return
@@ -107,7 +129,7 @@ class DownloadController:
         """
         Cancel the active download.
 
-        :param after_current: If True, cancel after current playlist item finishes.
+        :param after_current: If True, cancel after the current playlist item finishes.
         :type after_current: bool
         """
 
@@ -122,7 +144,12 @@ class DownloadController:
     def _run_download(self, url: str, options: Optional[dict] = None) -> None:
         """
         Internal method executed in a separate thread.
-        Initializes the Downloader with provided format and quality.
+        Initializes the Downloader and manages the full download lifecycle.
+
+        :param url: YouTube video or playlist URL.
+        :type url: str
+        :param options: Download configuration options.
+        :type options: dict
         """
 
         options: Optional[dict] = options or {}
@@ -336,6 +363,7 @@ class DownloadController:
                     self._error(msg)
 
         finally:
+            # Reset controller state
             self.pending_pause: bool = False
             self.pending_cancel: bool = False
             self.pending_cancel_after_current: bool = False
@@ -348,6 +376,10 @@ class DownloadController:
             self.app_window.after(0, self.app_window.set_idle_state)
 
     def on_window_close(self) -> None:
+        """
+        Persist download state when the application window is closed.
+        """
+
         if self.downloader:
             self.downloader.save_state_on_close()
 
@@ -355,7 +387,14 @@ class DownloadController:
     # Internal logging
     # ===============================
     def _log(self, message: str, level: str = "INFO") -> None:
-        """Internal logger for controller messages."""
+        """
+        Internal logger for controller messages.
+
+        :param message: Log message.
+        :type message: str
+        :param level: Log level.
+        :type level: str
+        """
 
         from datetime import datetime
 
@@ -370,7 +409,7 @@ class DownloadController:
 
     def  _set_status(self, message: str) -> None:
         """
-        Internal status update helper.
+        Update the UI status message.
 
         :param message: The status message.
         :type message: str
@@ -381,9 +420,10 @@ class DownloadController:
 
     def _error(self, message: str) -> None:
         """
+        Emit an error message through the error hook.
 
-        :param message:
-        :return:
+        :param message: Error message.
+        :type message: str
         """
 
         if self.error_hook:
@@ -398,7 +438,16 @@ class DownloadController:
     ) -> None:
         """
         Thread-safe error emitter.
-        Shows UI dialog, logs error and notifies hooks.
+        Logs the error, notifies hooks, and optionally shows a UI dialog.
+
+        :param message: Error message.
+        :type message: str
+        :param title: Dialog title.
+        :type title: str
+        :param level: Error severity level.
+        :type level: str
+        :param show_dialog: Whether to show a dialog.
+        :type show_dialog: bool
         """
 
         if title == "Download error":
@@ -425,7 +474,12 @@ class DownloadController:
     @staticmethod
     def is_youtube_mix(info: dict) -> bool:
         """
-        Determines whether the provided yt-dlp info represents a YouTube MIX.
+        Determine whether the provided yt-dlp info represents a YouTube MIX.
+
+        :param info: Extracted yt-dlp metadata.
+        :type info: dict
+        :return: True if the info represents a YouTube MIX.
+        :rtype: bool
         """
 
         if not info:
@@ -443,8 +497,13 @@ class DownloadController:
                 )
         )
 
-    def _handle_auth_required(self, error_msg: str):
-        """Handles videos that require authentication."""
+    def _handle_auth_required(self, error_msg: str) -> None:
+        """
+        Handles videos that require authentication.
+
+        :param error_msg: The error message.
+        :type error_msg: str
+        """
 
         _error_msg = error_msg
 
@@ -462,22 +521,15 @@ class DownloadController:
 
         self.downloader.retry_current_item()
 
-    def _handle_auth_failed(self) -> None:
-        """Alerts when video is restricted."""
-
-        ThemedMessageBox.show_warning(
-            parent=self,
-            title=self.app_window.i18n.t("download_controller.handle_auth_failed_title"),
-            message=self.app_window.i18n.t("download_controller.handle_auth_failed"),
-            theme=self.app_window.get_theme_context()
-        )
-
-        self.downloader.skip_current_item()
-
     def extract_basic_info(self, url: str) -> dict:
         """
-        SAFE pre-extraction.
-        Never raises on private / age / auth-required videos.
+        Safely extract basic metadata without raising errors
+        on private, age-restricted, or authentication-required videos.
+
+        :param url: YouTube video or playlist URL.
+        :type url: str
+        :return: Extracted metadata dictionary.
+        :rtype: dict
         """
 
         ydl_opts = {
@@ -511,13 +563,11 @@ class DownloadController:
     @staticmethod
     def extract_playlist_flat(url: str) -> dict:
         """
-        Fast playlist extraction WITH duration when available.
-        No auth, no download, no re-expansion.
+        Perform a fast flat playlist extraction without authentication or download.
 
-        :param url: url: YouTube video or playlist URL
+        :param url: YouTube video or playlist URL.
         :type url: str
-
-        :return: Dict with playlist metadata
+        :return: Playlist metadata.
         :rtype: dict
         """
 
@@ -542,13 +592,11 @@ class DownloadController:
 
     def confirm_keep_current_file(self, file_path: str) -> bool:
         """
-        Thread-save confirmation dialog.
-        Called by Downloader (worker thread), executed on Tk main loop.
+        Thread-safe confirmation dialog asking whether to keep the current file.
 
-        :param file_path: The path to the file.
+        :param file_path: Path to the downloaded file.
         :type file_path: str
-
-        :return: True if user want to keep the current file, False otherwise.
+        :return: True if the user chooses to keep the file.
         :rtype: bool
         """
 

@@ -11,42 +11,67 @@ from pydub.exceptions import CouldntDecodeError
 
 
 class Audio:
+    """
+    Audio utility class responsible for audio post-processing operations,
+    such as loudness normalization using ffmpeg.
+    """
 
     def __init__(self, file_path: str):
+        """
+        Initialize the Audio handler.
+
+        :param file_path: Path to the audio file.
+        :type file_path: str
+        """
+
         file_path = os.path.abspath(file_path)
 
+        # Validate file existence
         if not os.path.isfile(file_path):
-            raise ValueError(f"Arquivo inválido: {file_path}")
+            raise ValueError(f"Invalid audio file: {file_path}")
 
         self.file_path = file_path
         self.ffmpeg_path = get_ffmpeg_path()
 
     def normalize(self, target_lufs: float = -14.0):
         """
-        Normaliza o áudio para LUFS usando ffmpeg.
-        target_lufs: valor desejado em LUFS (recomendado -14.0 para streaming)
+        Normalize the audio loudness to a target LUFS value using ffmpeg.
+
+        :param target_lufs: Desired loudness in LUFS (recommended -14.0 for streaming).
+        :type target_lufs: float
         """
-        print("NORMALIZANDO AUDIO EXECUTADO............................")
 
-        tmp_file = os.path.abspath(self.file_path + ".normalized.tmp.wav")
+        # Temporary file used during normalization
+        tmp_file: str = os.path.abspath(self.file_path + ".normalized.tmp.wav")
 
-        # Comando ffmpeg para normalização LUFS
-        cmd = [
+        # ffmpeg command for LUFS loudness normalization
+        cmd: list[str] = [
             self.ffmpeg_path,
-            "-y",  # sobrescrever sem perguntar
+            "-y",  # Overwrite output files without asking
             "-i", self.file_path,
             "-af", f"loudnorm=I={target_lufs}:TP=-1.5:LRA=11",
             tmp_file
         ]
 
         try:
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Execute ffmpeg normalization command
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
 
-            # Substitui o arquivo original pelo normalizado
+            # Replace original file with normalized output
             os.replace(tmp_file, self.file_path)
 
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Erro ao normalizar áudio: {e.stderr.decode() if e.stderr else str(e)}")
+            # ffmpeg execution error
+            raise RuntimeError(
+                f"Error normalizing audio: "
+                f"{e.stderr.decode() if e.stderr else str(e)}"
+            )
 
         except Exception as e:
-            raise RuntimeError(f"Erro inesperado ao normalizar áudio: {e}")
+            # Catch-all for unexpected errors
+            raise RuntimeError(f"Unexpected error while normalizing audio: {e}")

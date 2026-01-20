@@ -3,27 +3,45 @@
 import os
 import sys
 
-def resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
 
-    except AttributeError:
-        base_path = os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))
-        )
-    return os.path.join(base_path, relative_path)
+def _get_base_path() -> str:
+    """
+    Get base path depending on execution context
+    (development or PyInstaller frozen app).
+    """
+    return getattr(
+        sys,
+        "_MEIPASS",
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
 
 
-def get_ffmpeg_path():
-    if getattr(sys, 'frozen', False):
-        base_path = sys._MEIPASS
+def resource_path(relative_path: str) -> str:
+    """
+    Resolve the absolute path to a resource file.
+    Supports both development and PyInstaller.
+    """
+    return os.path.join(_get_base_path(), relative_path)
 
-    else:
-        base_path = os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))
-        )
 
-    ffmpeg_path = os.path.join(base_path, "bin", "ffmpeg.exe")
+def get_ffmpeg_path() -> str:
+    """
+    Return the absolute path to the ffmpeg executable.
+
+    In frozen mode, the path is resolved from the bundled
+    application directory. In development mode, it is resolved
+    relative to the project root.
+
+    :return: Absolute path to ffmpeg.exe
+    :rtype: str
+    :raises FileNotFoundError: If ffmpeg.exe is not found
+    """
+
+    ffmpeg_path = os.path.join(
+        _get_base_path(),
+        "bin",
+        "ffmpeg.exe"
+    )
 
     if not os.path.isfile(ffmpeg_path):
         raise FileNotFoundError(

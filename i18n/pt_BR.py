@@ -31,6 +31,10 @@ TRANSLATIONS = {
     "theme": "Alternar tema",
     "lang": "Alternar idioma",
 
+    "open_folder_error": "Não foi possível abrir a pasta:",
+
+    "playlist_selection_title": "Selecione vídeos da playlist",
+
     "app.window.log_validate_url": "Nenhuma URL fornecida",
     "app.window.log_on_cancel_clicked_playlist": "⏭️ Cancelamento solicitado: aguardando o item atual finalizar.",
     "app.window.log_on_cancel_clicked_single": "❌ Cancelamento solicitado: o download será interrompido imediatamente",

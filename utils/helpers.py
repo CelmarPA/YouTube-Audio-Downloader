@@ -2,10 +2,25 @@
 
 import os
 
+from typing import Any
+
 from utils import is_normalized
 
 
-def safe_float(val, default=0.0):
+def safe_float(val: Any, default: float=0.0) -> float:
+    """
+    Safely convert a value to float.
+
+    If conversion fails, the provided default value is returned.
+
+    :param val: Value to convert
+    :type val: any
+    :param default: Default value if conversion fails
+    :type default: float
+    :return: Converted float value or default
+    :rtype: float
+    """
+
     try:
         return float(val)
     except (TypeError, ValueError):
@@ -21,19 +36,20 @@ def duration_format(duration_sec: float) -> str:
     :return: formatted duration
     :rtype: str
     """
+
     if not duration_sec:
         return "--:--"
 
     if duration_sec >= 3600:
-        hours = duration_sec // 3600
-        minutes = (duration_sec % 3600) // 60
-        seconds = duration_sec % 60
+        hours: int = duration_sec // 3600
+        minutes: int = (duration_sec % 3600) // 60
+        seconds: int = duration_sec % 60
 
-        duration_str = f"{hours}:{minutes:02d}:{seconds:02d}"
+        duration_str: str = f"{hours}:{minutes:02d}:{seconds:02d}"
 
     else:
-        minutes = duration_sec // 60
-        seconds = duration_sec % 60
+        minutes: int = duration_sec // 60
+        seconds: int = duration_sec % 60
 
         duration_str = f"{minutes}:{seconds:02d}"
 
@@ -41,71 +57,87 @@ def duration_format(duration_sec: float) -> str:
 
 
 def mark_already_downloaded(
-    entries,
-    playlist_dir,
-    audio_format,
-    keep_original,
-    normalize_audio
-):
+    entries: list,
+    playlist_dir: str,
+    audio_format: str,
+    keep_original: bool,
+    normalize_audio: bool
+) -> None:
     """
-    Marca entradas da playlist como já baixadas, levando em conta:
-    - existência de áudio
-    - existência de vídeo (se keep_original)
-    - normalização real por LUFS (se normalize_audio)
+    Mark playlist entries as already downloaded.
+
+    The decision takes into account:
+    - audio file existence
+    - video file existence when keep_original is enabled
+    - actual LUFS normalization when normalize_audio is enabled
+
+    :param entries: Playlist entries metadata
+    :type entries: list
+    :param playlist_dir: Directory where playlist files are stored
+    :type playlist_dir: str
+    :param audio_format: Target audio format (e.g. mp3, m4a)
+    :type audio_format: str
+    :param keep_original: Whether original video should exist
+    :type keep_original: bool
+    :param normalize_audio: Whether LUFS normalization is required
+    :type normalize_audio: bool
     """
 
     if not os.path.isdir(playlist_dir):
         return
 
-    audio_ext = f".{audio_format.lower()}"
+    audio_ext: str = f".{audio_format.lower()}"
 
     for entry in entries:
         entry["_already_downloaded"] = False
 
-        video_id = entry.get("id")
+        video_id: str = entry.get("id")
+
         if not video_id:
             continue
 
-        audio_found = False
-        video_found = False
-        audio_path = None
+        audio_found: bool = False
+        video_found: bool = False
+        audio_path: str = None
 
-        # 🔍 Procura arquivos do vídeo na pasta da playlist
+
         for root, _, files in os.walk(playlist_dir):
             for file in files:
                 if f"[{video_id}]" not in file:
                     continue
 
-                lower = file.lower()
+                lower: str = file.lower()
 
                 if lower.endswith(audio_ext):
-                    audio_found = True
-                    audio_path = os.path.join(root, file)
+                    audio_found: bool = True
+                    audio_path: str = os.path.join(root, file)
 
                 elif lower.endswith(".mp4"):
-                    video_found = True
+                    video_found: bool = True
 
-            # ✅ só sai quando tudo necessário foi encontrado
+            # 🔍 Search for related files inside playlist directory
             if audio_found and (not keep_original or video_found):
                 break
 
         # =========================
-        # 🔒 REGRA FINAL ÚNICA
+        # Final evaluation rule
         # =========================
-        already = False
+        already: bool = False
 
         if normalize_audio:
-            # precisa existir áudio E estar normalizado
+            # Must exist audio AND be normalized
             if audio_found and audio_path and is_normalized(audio_path):
                 if keep_original:
-                    already = video_found
+                    already: bool = video_found
                 else:
-                    already = True
+                    already: bool = True
+
         else:
-            # normalização desligada
+            # Normalization disabled
             if keep_original:
-                already = audio_found and video_found
+                already: bool = audio_found and video_found
+
             else:
-                already = audio_found
+                already: bool = audio_found
 
         entry["_already_downloaded"] = already

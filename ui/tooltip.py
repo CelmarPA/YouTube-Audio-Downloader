@@ -22,9 +22,20 @@ class Tooltip:
     """Tooltip widget with delayed hover display."""
 
     def __init__(self, widget: tk.Widget, text: str, delay: int = 1500) -> None:
-        self.widget = widget
-        self.text = text
-        self.delay = delay
+        """
+        Initialize a tooltip bound to a widget.
+
+        :param widget: Widget that will display the tooltip
+        :type widget: tk.Widget
+        :param text: Text shown inside the tooltip
+        :type text: str
+        :param delay: Delay in milliseconds before showing the tooltip
+        :type delay: int
+        """
+
+        self.widget: tk.Widget = widget
+        self.text: str = text
+        self.delay: int = delay
         self._after_id: Optional[str] = None
         self.tip_window: Optional[tk.Toplevel] = None
 
@@ -32,17 +43,25 @@ class Tooltip:
         widget.bind("<Leave>", self._hide)
 
     def _schedule(self, _: tk.Event) -> None:
+        """
+        Schedule the tooltip display after the configured delay.
+        """
+
         self._after_id = self.widget.after(
             self.delay,
             lambda *_: self._show()
         )
 
     def _show(self) -> None:
+        """
+        Create and show the tooltip window.
+        """
+
         if self.tip_window:
             return
 
-        x = self.widget.winfo_rootx() + 20
-        y = self.widget.winfo_rooty() + 20
+        x: int = self.widget.winfo_rootx() + 20
+        y: int = self.widget.winfo_rooty() + 20
 
         self.tip_window = tk.Toplevel(self.widget)
         self.tip_window.overrideredirect(True)
@@ -59,6 +78,10 @@ class Tooltip:
         label.pack()
 
     def _hide(self, _: tk.Event) -> None:
+        """
+        Hide the tooltip and cancel any pending display.
+        """
+
         if self._after_id:
             self.widget.after_cancel(self._after_id)
             self._after_id = None

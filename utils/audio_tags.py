@@ -20,10 +20,22 @@ LUFS_TOLERANCE = 1.0
 
 
 def get_lufs(path: str) -> float | None:
+    """
+    Measure the integrated loudness (LUFS) of an audio file.
+
+    This function uses FFmpeg with the loudnorm filter to
+    analyze the audio file and extract the input LUFS value.
+
+    :param path: Path to the audio file
+    :type path: str
+    :return: Measured LUFS value or None if unavailable
+    :rtype: float | None
+    """
+
     if not os.path.exists(path):
         return None
 
-    cmd = [
+    cmd: list = [
         "ffmpeg",
         "-i", path,
         "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
@@ -47,6 +59,19 @@ def get_lufs(path: str) -> float | None:
 
 
 def mark_as_normalized(path: str, lufs: float | None = None) -> None:
+    """
+    Mark an audio file as normalized by writing metadata tags.
+
+    The normalization flag is stored using the appropriate
+    tag format depending on the audio container type.
+
+    :param path: Path to the audio file
+    :type path: str
+    :param lufs: Optional LUFS value to store in metadata
+    :type lufs: float | None
+    :return: None
+    """
+
     if not path or not os.path.exists(path):
         return
 
@@ -90,20 +115,27 @@ def mark_as_normalized(path: str, lufs: float | None = None) -> None:
 
 
 def is_normalized(path: str) -> bool:
-    print("\n========== IS_NORMALIZED ==========")
-    print(f"AUDIO PATH: {path}")
+    """
+    Check whether an audio file is normalized to the target LUFS level.
+
+    This function measures the audio loudness using FFmpeg and compares
+    the result against the configured target LUFS with a tolerance.
+
+    :param path: Path to the audio file
+    :type path: str
+    :return: True if the audio is within the normalization tolerance
+    :rtype: bool
+    """
 
     if not os.path.exists(path):
-        print("❌ FILE DOES NOT EXIST")
         return False
 
     ffmpeg = get_ffmpeg_path()
-    print(f"FFMPEG PATH: {ffmpeg}")
 
     if not ffmpeg or not os.path.exists(ffmpeg):
-        raise FileNotFoundError("FFmpeg não encontrado")
+        raise FileNotFoundError("FFmpeg not founded")
 
-    cmd = [
+    cmd: list = [
         ffmpeg,
         "-hide_banner",
         "-nostats",
@@ -112,9 +144,6 @@ def is_normalized(path: str) -> bool:
         "-f", "null",
         "-"
     ]
-
-    print("RUNNING FFMPEG COMMAND:")
-    print(" ".join(cmd))
 
     result = subprocess.run(
         cmd,
@@ -126,19 +155,16 @@ def is_normalized(path: str) -> bool:
 
     stderr = result.stderr
 
-    # extrai JSON do loudnorm
     start = stderr.find("{")
     end = stderr.rfind("}")
 
     if start == -1 or end == -1:
-        raise RuntimeError("Não foi possível extrair loudnorm JSON")
+        raise RuntimeError("Unable to extract loudnorm JSON")
 
     data = json.loads(stderr[start:end + 1])
 
     input_lufs = float(data["input_i"])
-    print(f"MEASURED LUFS: {input_lufs}")
 
     normalized = abs(input_lufs - TARGET_LUFS) <= LUFS_TOLERANCE
-    print(f"IS NORMALIZED? {normalized}")
 
     return normalized

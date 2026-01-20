@@ -8,11 +8,10 @@ def sanitize_filename(name: str) -> str:
     """
     Sanitize a filename to remove invalid characters and normalize it.
 
-    Args:
-        name (str): Original filename.
-
-    Returns:
-        str: Sanitized filename safe for filesystem.
+    :param name: Original filename
+    :type name: str
+    :return: Sanitized filename safe for filesystem
+    :rtype: str
     """
 
     if not name:
