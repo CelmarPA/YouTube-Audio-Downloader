@@ -2,7 +2,6 @@
 
 import os
 import threading
-import tkinter as tk
 import yt_dlp
 
 from typing import Callable, Optional, TYPE_CHECKING, List
@@ -57,6 +56,7 @@ class DownloadController:
         # Download state
         self.active: bool = False
         self.paused: bool = False
+        self._alerted_private: bool = False
 
         # Deferred pause support
         self.pending_pause: bool = False
@@ -82,6 +82,8 @@ class DownloadController:
         :param options: Options for download.
         :type options: dict
         """
+
+        self._alerted_private = False
 
         if self.active:
             return  # Safety check to avoid double start
@@ -430,25 +432,22 @@ class DownloadController:
             self.error_hook(message)
 
     def _emit_error(
-        self,
-        message: str,
-        title: str = "Download error",
-        level: str = "ERROR",
-        show_dialog: bool = True
+            self,
+            message: str,
+            title: str = "Download error",
+            level: str = "ERROR",
+            show_dialog: bool = True
     ) -> None:
         """
         Thread-safe error emitter.
-        Logs the error, notifies hooks, and optionally shows a UI dialog.
-
-        :param message: Error message.
-        :type message: str
-        :param title: Dialog title.
-        :type title: str
-        :param level: Error severity level.
-        :type level: str
-        :param show_dialog: Whether to show a dialog.
-        :type show_dialog: bool
+        Shows UI dialog, logs error and notifies hooks.
         """
+
+        if "[private video]" in message.lower() or "[restricted video]" in message.lower():
+            if self._alerted_private:
+                show_dialog = False
+            else:
+                self._alerted_private = True
 
         if title == "Download error":
             title = self.app_window.i18n.t("download_error")
@@ -459,12 +458,11 @@ class DownloadController:
         self._log(message, level=level)
         self._error(message)
 
-        # UI dialog (sempre no main thread)
         if show_dialog:
             self.app_window.after(
                 0,
                 lambda: ThemedMessageBox.show_error(
-                    parent=self,
+                    parent=self.app_window,
                     title=title,
                     message=message,
                     theme=self.app_window.get_theme_context()
@@ -600,26 +598,14 @@ class DownloadController:
         :rtype: bool
         """
 
-        result: dict = {"keep": True}    # default safe value
-        done: tk.BooleanVar = tk.BooleanVar(value=False)
+        filename = os.path.basename(file_path)
 
-        def ask_user():
-            filename = os.path.basename(file_path)
+        # Directly show the modal dialog and get the result
+        keep: bool = ThemedMessageBox.ask_yes_no(
+            parent=self.app_window,
+            title=self.app_window.i18n.t("download_controller.ask_user_title"),
+            message=f"{self.app_window.i18n.t('download_controller.ask_user')}{filename}",
+            theme=self.app_window.get_theme_context()
+        )
 
-            keep: bool = ThemedMessageBox.ask_yes_no(
-                parent=self,
-                title=self.app_window.i18n.t("download_controller.ask_user_title"),
-                message=f"{self.app_window.i18n.t('download_controller.ask_user')}{filename}",
-                theme=self.app_window.get_theme_context()
-            )
-
-            result["keep"] = keep
-            done.set(True)
-
-        # 🔥 Run dialog on UI thread
-        self.app_window.after(0, ask_user)
-
-        # 🔥 Block ONLY this worker thread (UI keeps running)
-        self.app_window.wait_variable(done)
-
-        return result["keep"]
+        return keep

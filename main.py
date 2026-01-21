@@ -1,6 +1,6 @@
 # main.py
 
-from ui  import AppWindow
+from ui import AppWindow
 
 
 if __name__ == '__main__':

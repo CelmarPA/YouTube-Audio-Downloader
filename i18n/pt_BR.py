@@ -15,6 +15,7 @@ TRANSLATIONS = {
     "cancel": "Cancelar",
     "cancel_btn": "Cancelar o download atual",
     "playlist": "Playlist",
+    "playlist_ckb": "Abrir janela de seleção de lista de reprodução",
     "keep_original": "Manter original",
     "keep_original_ckb": "Manter o arquivo de vídeo original após a extração",
     "normalize_audio": "Normalizar áudio",
@@ -22,6 +23,7 @@ TRANSLATIONS = {
     "resolution_label": "Resolução:",
     "video_resolution": "Selecione a resolução do vídeo (Auto, 480p, 720p, 1080p). Auto: define a melhor resolução disponível",
     "show_log": "Mostrar log",
+    "show_log_ckb": "Mostra a janela de log",
     "choose": "Escolher pasta",
     "choose_label": "Escolher…",
     "save_in_label": "Salvar em:",
@@ -30,6 +32,7 @@ TRANSLATIONS = {
     "help": "Abrir ajuda",
     "theme": "Alternar tema",
     "lang": "Alternar idioma",
+    "downloader.restricted": "Vídeo restrito ou privado",
 
     "open_folder_error": "Não foi possível abrir a pasta:",
 
@@ -61,6 +64,9 @@ TRANSLATIONS = {
 
     "app.window.error_log_validate_not_url": "Por favor, insira uma URL do YouTube.",
     "app.window.error_log_not_looks_url": "URL do YouTube inválida:",
+
+    "app.window.network_error_title": "Sem conexão com a internet",
+    "app.window.network_error": "Você precisa de uma conexão ativa com a internet para baixar vídeos",
 
     "playlist_frame.select_all_btn_label": "Selecionar tudo",
     "playlist_frame.select_all_btn": "Selecionar todos os vídeos da lista",

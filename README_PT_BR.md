@@ -8,21 +8,22 @@ Desenvolvida com **arquitetura limpa**, **separação clara de responsabilidades
 
 ## 📘 Tabela de Conteúdos
 
-* [🎵 YouTube Audio Downloader](#-youtube-audio-downloader)
-
-  * [📘 Tabela de Conteúdos](#-tabela-de-conteúdos)
-  * [🔥 Visão Geral](#-visão-geral)
-  * [⚡ Principais Funcionalidades](#-principais-funcionalidades)
-  * [🚀 Guia Rápido de Uso](#-guia-rápido-de-uso)
-  * [📝 Observações Importantes](#-observações-importantes)
-  * [🏗 Arquitetura do Projeto](#-arquitetura-do-projeto)
-  * [🛠 Tecnologias](#-tecnologias)
-  * [💻 Instalação](#-instalação)
-  * [⚙ Configuração](#-configuração)
-  * [▶ Executando a Aplicação](#-executando-a-aplicação)
-  * [📂 Estrutura de Pastas](#-estrutura-de-pastas)
-  * [📜 Licença](#-licença)
-  * [👤 Autor](#-autor)
+- [🎵 YouTube Audio Downloader](#-youtube-audio-downloader)
+  - [📘 Tabela de Conteúdos](#-tabela-de-conteúdos)
+  - [🔥 Visão Geral](#-visão-geral)
+  - [🔥 Screenshot](#-screenshot)
+  - [⚡ Principais Funcionalidades](#-principais-funcionalidades)
+  - [🚀 Guia Rápido de Uso](#-guia-rápido-de-uso)
+  - [📝 Observações Importantes](#-observações-importantes)
+  - [🏗 Arquitetura do Projeto](#-arquitetura-do-projeto)
+  - [🛠 Tecnologias](#-tecnologias)
+  - [💻 Instalação](#-instalação)
+  - [⚙ Configuração](#-configuração)
+  - [▶ Executando a Aplicação](#-executando-a-aplicação)
+  - [📂 Estrutura de Pastas](#-estrutura-de-pastas)
+  - [📜 Licença](#-licença)
+  - [👤 Autor](#-autor)
+  - [💬 Feedback](#-feedback)
 
 ---
 
@@ -37,6 +38,12 @@ Desenvolvida com **arquitetura limpa**, **separação clara de responsabilidades
 ✔ Nenhum processamento em nuvem — tudo roda localmente
 
 O projeto prioriza **clareza, segurança e controle**, tornando-o adequado tanto para usuários casuais quanto para avançados.
+
+---
+
+## 🔥 Screenshot
+
+![YouTube Audio Downloader Screenshot](docs/screenshot.png)
 
 ---
 
@@ -165,6 +172,9 @@ YouTube-Audio-Downloader/
 │   ├── downloader.py
 │   └── ydl_logger.py
 │
+├── docs/
+│   └── screenshot.png
+│
 ├── download_state/
 │
 ├── i18n/
@@ -184,6 +194,7 @@ YouTube-Audio-Downloader/
 │   ├── app_config.py
 │   ├── audio_tags.py
 │   ├── helpers.py
+│   ├── network.py
 │   ├── paths.py
 │   ├── sanitize.py
 │   └── window.py

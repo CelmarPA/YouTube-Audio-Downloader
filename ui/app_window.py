@@ -27,6 +27,7 @@ from ui.help_window import HelpWindow
 from utils.paths import resource_path
 from utils.window import set_window_icon
 from utils.app_config import load_config, save_config
+from utils.network import has_internet_connection
 from ui.dialogs.themed_messagebox import ThemedMessageBox
 
 
@@ -343,6 +344,8 @@ class AppWindow(tk.Tk):
         self.playlist_ckb.pack(side="left", padx=(0, 10))
         self.style_tk_checkbutton(self.playlist_ckb)
 
+        Tooltip(self.playlist_ckb, self.i18n.t("playlist_ckb"))
+
         self.normalize_ckb: tk.Checkbutton = tk.Checkbutton(
             frame,
             text=self.i18n.t("normalize_audio"),
@@ -497,6 +500,8 @@ class AppWindow(tk.Tk):
         )
         chk.pack(anchor="w")
         self.style_tk_checkbutton(chk)
+
+        Tooltip(chk, self.i18n.t("show_log_ckb"))
 
         # ===============================
         # Log area with scrollbar
@@ -745,7 +750,7 @@ class AppWindow(tk.Tk):
         """
         Start the download process.
 
-        Validates the URL, updates UI state, resets progress indicators,
+        Validates the URL, the internet connection, updates UI state, resets progress indicators,
         and starts the download process in a background thread.
         """
 
@@ -753,6 +758,15 @@ class AppWindow(tk.Tk):
 
         # Validate URL before starting download
         if not self._validate_url(url):
+            return
+
+        if not has_internet_connection():
+            ThemedMessageBox.show_error(
+                parent=self,
+                title=self.i18n.t("app.window.network_error_title"),
+                message=self.i18n.t("app.window.network_error"),
+                theme=self.get_theme_context()
+            )
             return
 
         # Update UI state to downloading mode
@@ -912,6 +926,9 @@ class AppWindow(tk.Tk):
 
         if folder:
             self.output_path_var.set(folder)
+            self.output_path = folder
+
+
 
     def _open_folder(self) -> None:
         """

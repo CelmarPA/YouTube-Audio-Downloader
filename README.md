@@ -12,6 +12,7 @@ Designed with **clean architecture**, **clear separation of concerns**, and **pr
 - [🎵 YouTube Audio Downloader](#-youtube-audio-downloader)
   - [📘 Table of Contents](#-table-of-contents)
   - [🔥 Overview](#-overview)
+  - [🔥 Screenshot](#-screenshot)
   - [⚡ Main Features](#-main-features)
   - [🚀 Quick Usage Guide](#-quick-usage-guide)
   - [📝 Important Notes](#-important-notes)
@@ -38,6 +39,12 @@ Designed with **clean architecture**, **clear separation of concerns**, and **pr
 ✔ No cloud processing — everything runs locally  
 
 This project prioritizes **clarity, safety, and control**, making it suitable for both casual users and power users.
+
+---
+
+## 🔥 Screenshot
+
+![YouTube Audio Downloader Screenshot](docs/screenshot.png)
 
 ---
 
@@ -166,6 +173,9 @@ YouTube-Audio-Downloader/
 │   ├── downloader.py
 │   └── ydl_logger.py
 │
+├── docs/
+│   └── screenshot.png
+│
 ├── download_state/
 │
 ├── i18n/
@@ -185,6 +195,7 @@ YouTube-Audio-Downloader/
 │   ├── app_config.py
 │   ├── audio_tags.py
 │   ├── helpers.py
+│   ├── network.py
 │   ├── paths.py
 │   ├── sanitize.py
 │   └── window.py

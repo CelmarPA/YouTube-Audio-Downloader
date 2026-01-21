@@ -10,7 +10,7 @@ from tkinter import filedialog
 
 from ui.dialogs.themed_messagebox import ThemedMessageBox
 from i18n.manager import I18nManager
-from utils.app_config import load_config
+from utils.app_config import load_config, save_config
 
 
 config: dict = load_config()
@@ -30,15 +30,13 @@ def get_default_downloads() -> str:
     return str(Path.home() / "Downloads")
 
 # Global variable that stores the current download directory
-download_dir: str = get_default_downloads()
+download_dir = config.get("download_dir") or get_default_downloads()
 
 
 def choose_folder() -> str:
     """
-    Open a folder selection dialog and update the global download directory.
-
-    If the user selects a folder, it becomes the new download directory.
-    If the dialog is canceled, the previous value is preserved.
+    Open a folder selection dialog and update the download directory.
+    Saves the choice in app_config.json.
 
     :return: Selected or current download directory
     :rtype: str
@@ -48,7 +46,11 @@ def choose_folder() -> str:
     folder: str = filedialog.askdirectory()
 
     if folder:
-        download_dir: str = folder
+        download_dir = folder
+
+        # 🔹 Save in app_config.json
+        config["download_dir"] = download_dir
+        save_config(config)
 
     return download_dir
 

@@ -19,45 +19,6 @@ TARGET_LUFS = -14.0
 LUFS_TOLERANCE = 1.0
 
 
-def get_lufs(path: str) -> float | None:
-    """
-    Measure the integrated loudness (LUFS) of an audio file.
-
-    This function uses FFmpeg with the loudnorm filter to
-    analyze the audio file and extract the input LUFS value.
-
-    :param path: Path to the audio file
-    :type path: str
-    :return: Measured LUFS value or None if unavailable
-    :rtype: float | None
-    """
-
-    if not os.path.exists(path):
-        return None
-
-    cmd: list = [
-        "ffmpeg",
-        "-i", path,
-        "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
-        "-f", "null",
-        "-"
-    ]
-
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-
-    for line in result.stderr.splitlines():
-        if line.strip().startswith("{") and '"input_i"' in line:
-            data = json.loads(line)
-            return float(data["input_i"])
-
-    return None
-
-
 def mark_as_normalized(path: str, lufs: float | None = None) -> None:
     """
     Mark an audio file as normalized by writing metadata tags.

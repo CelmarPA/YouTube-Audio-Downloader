@@ -15,6 +15,7 @@ TRANSLATIONS = {
     "cancel": "Cancel",
     "cancel_btn": "Cancel the current download",
     "playlist": "Playlist",
+    "playlist_ckb": "Open playlist selection window",
     "keep_original": "Keep Original",
     "keep_original_ckb": "Keep original video file after extraction",
     "normalize_audio": "Normalize Audio",
@@ -22,6 +23,7 @@ TRANSLATIONS = {
     "resolution_label": "Resolution:",
     "video_resolution": "Select video resolution for download (Auto, 480p, 720p, 1080p), Auto: sets the best resolution available",
     "show_log": "Show log",
+    "show_log_ckb": "Show log window",
     "choose": "Choose folder",
     "choose_label": "Choose…",
     "save_in_label": "Save in:",
@@ -58,6 +60,9 @@ TRANSLATIONS = {
 
     "app.window.error_log_validate_not_url": "Please enter a YouTube URL.",
     "app.window.error_log_not_looks_url": "Invalid YouTube URL:",
+
+    "app.window.network_error_title": "No Internet Connection",
+    "app.window.network_error": "You need an active internet connection to download videos",
 
     "playlist_frame.select_all_btn_label": "Select all",
     "playlist_frame.select_all_btn": "Select all videos in the list",
@@ -136,6 +141,7 @@ TRANSLATIONS = {
     "downloader.status_notify_restricted": "🚫 Private / unavailable video skipped",
     "downloader.status_skipped_restricted": "🚫 Skipped restricted video:",
 
+    "downloader.restricted": "Video restricted or private",
     "downloader.log_error_download_failed": "Download failed:",
     "downloader.log_error_not_entries": "No new item to download",
     "downloader.log_error_restricted_private": "🚫 Restricted / private video skipped:",

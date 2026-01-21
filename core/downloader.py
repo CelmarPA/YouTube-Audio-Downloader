@@ -9,7 +9,7 @@ import time
 import yt_dlp
 import yt_dlp.utils
 
-from typing import Optional, Callable, List, Tuple, Any, TypedDict
+from typing import Optional, Callable, List, Tuple, Any
 
 from core.ydl_logger import YDLLogger
 from core.audio import Audio
@@ -322,12 +322,18 @@ class Downloader:
             # Ensure full metadata is available for single video
             info = self.get_info(flat=False)
 
+            if not info or not isinstance(info, dict):
+                self.notify_restricted(self.i18n.t("downloader.restricted"))
+
+                return
+
             self._download_single(info)
 
         except Exception as e:
             msg: str = str(e)
 
             self._error(msg)
+
             self._log(
                 f"{self.i18n.t('downloader.log_error_download_failed')} {msg}",
                 self.i18n.t("error_level")
@@ -1820,20 +1826,30 @@ class Downloader:
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info: TypedDict = ydl.extract_info(url, download=False)
+                info: dict = ydl.extract_info(url, download=False)
 
                 # Resolve URL indirections
                 if info and info.get("_type") == "url":
                     info = ydl.extract_info(info["url"], download=False)
 
         except Exception as e:
-            self._error(str(e))
+            # Log internally but don't break the flow
+            self._log(f"Failed to extract video info: {str(e)}", level=self.i18n.t("error_level"))
+            info = {
+                "_type": "video",
+                "title": "[Restricted video]",
+                "__restricted__": "unknown",
+                "id": None,
+            }
 
-            info = None
-
-        # Absolute guarantee: always return a dictionary
+        # Guarantee always return a dictionary
         if not isinstance(info, dict):
-            info: dict = {}
+            info = {
+                "_type": "video",
+                "title": "[Restricted video]",
+                "__restricted__": "unknown",
+                "id": None,
+            }
 
         self._extract_cache[url] = info
 
