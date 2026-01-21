@@ -11,7 +11,7 @@ Desenvolvida com **arquitetura limpa**, **separação clara de responsabilidades
 - [🎵 YouTube Audio Downloader](#-youtube-audio-downloader)
   - [📘 Tabela de Conteúdos](#-tabela-de-conteúdos)
   - [🔥 Visão Geral](#-visão-geral)
-  - [🔥 Screenshot](#-screenshot)
+  - [🖼️ Screenshot](#-screenshot)
   - [⚡ Principais Funcionalidades](#-principais-funcionalidades)
   - [🚀 Guia Rápido de Uso](#-guia-rápido-de-uso)
   - [📝 Observações Importantes](#-observações-importantes)
@@ -41,7 +41,7 @@ O projeto prioriza **clareza, segurança e controle**, tornando-o adequado tanto
 
 ---
 
-## 🔥 Screenshot
+## 🖼️ Screenshot
 
 ![YouTube Audio Downloader Screenshot](docs/screenshot.png)
 
