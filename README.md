@@ -12,7 +12,7 @@ Designed with **clean architecture**, **clear separation of concerns**, and **pr
 - [🎵 YouTube Audio Downloader](#-youtube-audio-downloader)
   - [📘 Table of Contents](#-table-of-contents)
   - [🔥 Overview](#-overview)
-  - [🔥 Screenshot](#-screenshot)
+  - [🖼️ Screenshot](#-screenshot)
   - [⚡ Main Features](#-main-features)
   - [🚀 Quick Usage Guide](#-quick-usage-guide)
   - [📝 Important Notes](#-important-notes)
@@ -42,7 +42,7 @@ This project prioritizes **clarity, safety, and control**, making it suitable fo
 
 ---
 
-## 🔥 Screenshot
+## 🖼️ Screenshot
 
 ![YouTube Audio Downloader Screenshot](docs/screenshot.png)
 
