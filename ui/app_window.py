@@ -29,6 +29,7 @@ from utils.window import set_window_icon
 from utils.app_config import load_config, save_config
 from utils.network import has_internet_connection
 from ui.dialogs.themed_messagebox import ThemedMessageBox
+from utils.app_config import get_state_file
 
 
 DOWNLOAD_DIR: str = os.path.abspath(download_dir)
@@ -146,14 +147,7 @@ class AppWindow(tk.Tk):
         # -----------------------------
         # Global download status
         # -----------------------------
-        self.STATE_DIR: str = os.path.join(
-            os.path.dirname(__file__), "..", "download_state"
-        )
-        os.makedirs(self.STATE_DIR, exist_ok=True)
-
-        self.STATE_FILE: str = os.path.join(
-            self.STATE_DIR, "download_state.json"
-        )
+        self.STATE_FILE: str = get_state_file()
 
         # -----------------------------
         # Resume previous session
