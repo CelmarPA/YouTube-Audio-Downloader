@@ -6,7 +6,7 @@
 AppName=YouTube Audio Downloader
 AppVersion=1.0
 AppPublisher=Pereira A.C.
-DefaultDirName={userpf}\YouTube Audio Downloader
+DefaultDirName={pf}\YouTube Audio Downloader
 DefaultGroupName=YouTube Audio Downloader
 UninstallDisplayName=YouTube Audio Downloader
 UninstallDisplayIcon={app}\YouTubeAudioDownloader.exe
