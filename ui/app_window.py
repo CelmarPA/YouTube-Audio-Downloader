@@ -10,10 +10,7 @@ integration, and logging controls.
 """
 
 import os
-import sys
 import tkinter as tk
-import subprocess
-
 from threading import Thread
 from tkinter import ttk
 from typing import Callable, Optional
@@ -65,8 +62,8 @@ class AppWindow(tk.Tk):
         # Language flag icons
         # -----------------------------
         self.flag_icons = {
-            "pt-BR": tk.PhotoImage(file=resource_path(r"assets\br_icon.png")),
-            "en-US": tk.PhotoImage(file=resource_path(r"assets\us_icon.png")),
+            "pt-BR": tk.PhotoImage(file=resource_path("assets/br_icon.png")),
+            "en-US": tk.PhotoImage(file=resource_path("assets/us_icon.png")),
         }
 
         # -----------------------------
@@ -95,7 +92,7 @@ class AppWindow(tk.Tk):
         # -----------------------------
         # Window configuration
         # -----------------------------
-        self.title('YouTube Audio Downloader')
+        self.title(self.i18n.t("app_title"))
         self.geometry("850x500")
         self.minsize(850, 500)
 
@@ -121,6 +118,8 @@ class AppWindow(tk.Tk):
         self._ckb_indicator_bg: str = None
         self._ckb_indicator_fg: str = None
         self._ckb_selectcolor: str = None
+
+
 
         # -----------------------------
         # Status & progress state
@@ -294,7 +293,8 @@ class AppWindow(tk.Tk):
         # -------------------------
         # Audio Format
         # -------------------------
-        ttk.Label(frame, text=self.i18n.t("audio_format_label")).pack(side="left")
+        self.audio_format_label: ttk.Label = ttk.Label(frame, text=self.i18n.t("audio_format_label"))
+        self.audio_format_label.pack(side="left")
 
         format_options: list = ["mp3", "wav", "flac", "m4a"]
 
@@ -312,7 +312,8 @@ class AppWindow(tk.Tk):
         # -------------------------
         # Audio Quality
         # -------------------------
-        ttk.Label(frame, text=self.i18n.t("audio_quality_label")).pack(side="left", padx=(0, 5))
+        self.audio_quality_label: ttk.Label = ttk.Label(frame, text=self.i18n.t("audio_quality_label"))
+        self.audio_quality_label.pack(side="left", padx=(0, 5))
 
         quality_options: list = ["128", "192", "256", "320"]
 
@@ -361,7 +362,8 @@ class AppWindow(tk.Tk):
 
         Tooltip(self.keep_original_ckb, self.i18n.t("keep_original_ckb"))
 
-        ttk.Label(frame, text=self.i18n.t("resolution_label")).pack(side="left", padx=(0, 5))
+        self.resolution_label: ttk.Label = ttk.Label(frame, text=self.i18n.t("resolution_label"))
+        self.resolution_label.pack(side="left", padx=(0, 5))
 
         self.resolution_cb: ttk.Combobox = ttk.Combobox(
             frame,
@@ -443,9 +445,8 @@ class AppWindow(tk.Tk):
         frame: ttk.Frame = ttk.Frame(self)
         frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(frame, text=self.i18n.t("save_in_label")).grid(
-            row=0, column=0, columnspan=3, sticky="w"
-        )
+        self.save_label: ttk.Label = ttk.Label(frame, text=self.i18n.t("save_in_label"))
+        self.save_label.grid(row=0, column=0, columnspan=3, sticky="w")
 
         self.output_entry: ttk.Entry = ttk.Entry(
             frame,
@@ -455,16 +456,16 @@ class AppWindow(tk.Tk):
             row=1, column=0, sticky="ew", padx=(0, 5)
         )
 
-        choose_btn: ttk.Button = ttk.Button(
+        self.choose_btn: ttk.Button = ttk.Button(
             frame,
             text=self.i18n.t("choose_label"),
             width=10,
             command=self._choose_folder
         )
-        choose_btn.configure(takefocus=False)
-        choose_btn.grid(row=1, column=1)
+        self.choose_btn.configure(takefocus=False)
+        self.choose_btn.grid(row=1, column=1)
 
-        Tooltip(choose_btn, self.i18n.t("choose"))
+        Tooltip(self.choose_btn, self.i18n.t("choose"))
 
         frame.columnconfigure(0, weight=1)
 
@@ -486,16 +487,16 @@ class AppWindow(tk.Tk):
         # ===============================
         self.show_log_var = tk.BooleanVar(value=True)
 
-        chk: tk.Checkbutton = tk.Checkbutton(
+        self.chk_log: tk.Checkbutton = tk.Checkbutton(
             container,
             text=self.i18n.t("show_log"),
             variable=self.show_log_var,
             command=self._toggle_log
         )
-        chk.pack(anchor="w")
-        self.style_tk_checkbutton(chk)
+        self.chk_log.pack(anchor="w")
+        self.style_tk_checkbutton(self.chk_log)
 
-        Tooltip(chk, self.i18n.t("show_log_ckb"))
+        Tooltip(self.chk_log, self.i18n.t("show_log_ckb"))
 
         # ===============================
         # Log area with scrollbar
@@ -1250,62 +1251,15 @@ class AppWindow(tk.Tk):
         """
 
         new_lang: str = "pt-BR" if self.language == "en-US" else "en-US"
+        self.language = new_lang
 
         config: dict = load_config()
         config["language"] = new_lang
         config["theme"] = self.theme
         save_config(config)
 
-        self._show_restart_dialog()
-
-    def _show_restart_dialog(self) -> None:
-        """
-        Display a confirmation dialog asking the user to restart the application.
-
-        If the user confirms, the application restart process is triggered
-        to apply configuration changes such as language or theme updates.
-        """
-
-        result: ThemedMessageBox = ThemedMessageBox.ask_yes_no(
-            parent=self,
-            title=self.i18n.t("app.window.show_restart_title"),
-            message=self.i18n.t("app.window.show_restart"),
-            theme=self.get_theme_context()
-        )
-
-        if result:
-            self._restart_app()
-
-    def _restart_app(self, dialog=None):
-        """
-        Restart the application process.
-
-        Handles both frozen (packaged) and development environments.
-        """
-
-        if dialog:
-            dialog.destroy()
-
-        self.update_idletasks()
-        self.destroy()
-
-        if getattr(sys, "frozen", False):
-            # Packaged app (PyInstaller / cx_Freeze)
-            subprocess.Popen(
-                [sys.executable],
-                close_fds=True,
-                shell=False
-            )
-        else:
-            # Development mode
-            main_file = os.path.abspath(sys.modules["__main__"].__file__)
-            subprocess.Popen(
-                [sys.executable, main_file],
-                close_fds=True,
-                shell=False
-            )
-
-        sys.exit(0)
+        self.i18n.set_language(new_lang)
+        self.refresh_ui()
 
     def _open_help(self):
         """
@@ -1351,3 +1305,104 @@ class AppWindow(tk.Tk):
         """
 
         self.log_text.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def refresh_ui(self) -> None:
+        """
+        Refresh the entire UI based on the current language.
+        Shows a message informing that restarting the app applies all changes.
+        """
+
+        # -------------------------
+        # Update window title
+        # -------------------------
+        self.title(self.i18n.t("app_title"))
+
+        # -------------------------
+        # Header buttons
+        # -------------------------
+        self.help_btn.configure(text="❔")
+        Tooltip(self.help_btn, self.i18n.t("help"))
+
+        self.lang_btn.configure(image=self.flag_icons[self.language])
+        Tooltip(self.lang_btn, self.i18n.t("lang"))
+
+        self.theme_btn.configure(text="🌙")
+        Tooltip(self.theme_btn, self.i18n.t("theme"))
+
+        # -------------------------
+        # URL section
+        # -------------------------
+        for child in self.url_entry.master.winfo_children():
+            if isinstance(child, ttk.Label):
+                child.config(text=self.i18n.t("url"))
+            elif isinstance(child, ttk.Button):
+                Tooltip(child, self.i18n.t("paste"))
+
+        # -------------------------
+        # Options section
+        # -------------------------
+        self.audio_format_label.config(text=self.i18n.t("audio_format_label"))
+        self.audio_format_menu.configure(values=["mp3", "wav", "flac", "m4a"])
+        Tooltip(self.audio_format_menu, self.i18n.t("audio_format"))
+
+        self.audio_quality_label.config(text=self.i18n.t("audio_quality_label"))
+        self.audio_quality_menu.configure(values=["128", "192", "256", "320"])
+        Tooltip(self.audio_quality_menu, self.i18n.t("audio_quality"))
+
+        self.playlist_ckb.config(text=self.i18n.t("playlist"))
+        Tooltip(self.playlist_ckb, self.i18n.t("playlist_ckb"))
+
+        self.normalize_ckb.config(text=self.i18n.t("normalize_audio"))
+        Tooltip(self.normalize_ckb, self.i18n.t("normalize_ckb"))
+
+        self.keep_original_ckb.config(text=self.i18n.t("keep_original"))
+        Tooltip(self.keep_original_ckb, self.i18n.t("keep_original_ckb"))
+
+        self.resolution_label.config(text=self.i18n.t("resolution_label"))
+        self.resolution_cb.configure(values=["Auto", "480p", "720p", "1080p"])
+        Tooltip(self.resolution_cb, self.i18n.t("video_resolution"))
+
+        # -------------------------
+        # Action buttons
+        # -------------------------
+        self.download_btn.config(text=self.i18n.t("download"))
+        Tooltip(self.download_btn, self.i18n.t("download_btn"))
+
+        self.pause_resume_btn.config(text=self.i18n.t("pause"))
+        Tooltip(self.pause_resume_btn, self.i18n.t("pause_resume_btn"))
+
+        self.cancel_btn.config(text=self.i18n.t("cancel"))
+        Tooltip(self.cancel_btn, self.i18n.t("cancel_btn"))
+
+        self.open_btn.config(text=self.i18n.t("open_label"))
+        Tooltip(self.open_btn, self.i18n.t("open"))
+
+        # -------------------------
+        # Save folder section
+        # -------------------------
+        self.save_label.config(text=self.i18n.t("save_in_label"))
+
+        self.choose_btn.config(text=self.i18n.t("choose_label"))
+        Tooltip(self.choose_btn, self.i18n.t("choose"))
+
+        # -------------------------
+        # Log checkbox
+        # -------------------------
+        self.chk_log.config(text=self.i18n.t("show_log"))
+        self.show_log_var.set(True)
+
+        Tooltip(self.chk_log, self.i18n.t("show_log_ckb"))
+        # -------------------------
+        # Reset status
+        # -------------------------
+        self.status_var.set(self.i18n.t("ready"))
+
+        # -------------------------
+        # Show restart message
+        # -------------------------
+        ThemedMessageBox.info(
+            parent=self,
+            title=self.i18n.t("info"),
+            message=self.i18n.t("settings_applied_restart"),
+            theme=self.get_theme_context()
+        )

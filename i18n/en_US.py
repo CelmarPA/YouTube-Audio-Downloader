@@ -1,6 +1,7 @@
 # i18n/en_US.py
 
 TRANSLATIONS = {
+    "app_title": "YouTube Audio Downloader",
     "url": "Video or Playlist URL",
     "paste": "Paste URL from clipboard",
     "audio_format_label": "Audio Format:",
@@ -33,6 +34,7 @@ TRANSLATIONS = {
     "theme": "Toggle theme",
     "lang": "Toggle language",
     "playlist_selection_title": "Select playlist videos",
+    "settings_applied_restart": "For all changes to take effect, restart the application!",
 
     "app.window.log_validate_url": "No URL provided",
     "app.window.log_on_cancel_clicked_playlist": "⏭️ Cancellation requested: waiting for current item to finish.",

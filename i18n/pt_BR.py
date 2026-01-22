@@ -1,6 +1,7 @@
 # i18n/pt_BR.py
 
 TRANSLATIONS = {
+    "app_title": "YouTube Audio Downloader",
     "url": "URL do vídeo ou playlist",
     "paste": "Colar URL da área de transferência",
     "audio_format_label": "Formato de áudio:",
@@ -33,6 +34,7 @@ TRANSLATIONS = {
     "theme": "Alternar tema",
     "lang": "Alternar idioma",
     "downloader.restricted": "Vídeo restrito ou privado",
+    "settings_applied_restart": "Para que todas as alterações tenham efeito, reinicie o aplicativo!",
 
     "open_folder_error": "Não foi possível abrir a pasta:",
 

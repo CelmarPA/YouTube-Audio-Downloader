@@ -18,10 +18,21 @@ def _get_base_path() -> str:
 
 def resource_path(relative_path: str) -> str:
     """
-    Resolve the absolute path to a resource file.
-    Supports both development and PyInstaller.
+    Get absolute path to resource, works for development and PyInstaller executable.
+
+    :param relative_path: Relative path to the resource.
+    :type relative_path: str
+    :return: Absolute path to the resource.
+    :rtype: str
     """
-    return os.path.join(_get_base_path(), relative_path)
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path: str = sys._MEIPASS
+    except AttributeError:
+        # Fallback: use the current directory in development
+        base_path: str = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 
 def get_ffmpeg_path() -> str:
